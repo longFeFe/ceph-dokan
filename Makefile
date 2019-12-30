@@ -1,10 +1,10 @@
 #Makefile by Ketor
-CC        = gcc -D__USE_FILE_OFFSET64 -DHAVE_CONFIG_H -I. -D__CEPH__ -D_FILE_OFFSET_BITS=64 -D_REENTRANT -D_THREAD_SAFE -D__STDC_FORMAT_MACROS -D_GNU_SOURCE -fno-strict-aliasing -fsigned-char -fno-builtin-malloc -fno-builtin-calloc -fno-builtin-realloc -fno-builtin-free -g -DPIC
-CPP       = g++ -D__USE_FILE_OFFSET64 -DHAVE_CONFIG_H -I. -D__CEPH__ -D_FILE_OFFSET_BITS=64 -D_REENTRANT -D_THREAD_SAFE -D__STDC_FORMAT_MACROS -D_GNU_SOURCE -fno-strict-aliasing -fsigned-char -Wno-invalid-offsetof -fno-builtin-malloc -fno-builtin-calloc -fno-builtin-realloc -fno-builtin-free -g -DPIC
+CC        = gcc -D__USE_FILE_OFFSET64 -DHAVE_CONFIG_H -I. -D__CEPH__ -D_FILE_OFFSET_BITS=64 -D_REENTRANT -D_THREAD_SAFE -D__STDC_FORMAT_MACROS -D_GNU_SOURCE -fno-strict-aliasing -fsigned-char -fno-builtin-malloc -fno-builtin-calloc -fno-builtin-realloc -fno-builtin-free -g -DPIC -mwindows
+CPP       = g++ -D__USE_FILE_OFFSET64 -DHAVE_CONFIG_H -I. -D__CEPH__ -D_FILE_OFFSET_BITS=64 -D_REENTRANT -D_THREAD_SAFE -D__STDC_FORMAT_MACROS -D_GNU_SOURCE -fno-strict-aliasing -fsigned-char -Wno-invalid-offsetof -fno-builtin-malloc -fno-builtin-calloc -fno-builtin-realloc -fno-builtin-free -g -DPIC -mwindows
 
-BOOST_PATH=C:\boost_1_63_0
+BOOST_PATH=E:\3rdparty\boost_1_63_0
 BOOST_SYSTEM_LIB=libboost_system-mgw51-mt-1_63.a
-CEPH_INCLUDE = -I./ -I./global -I./mingw_include -I$(BOOST_PATH)
+CEPH_INCLUDE = -I./ -I./global -I./mingw_include -I$(BOOST_PATH) -I./pipe
 CFLAGS   = $(CEPH_INCLUDE)
 CLIBS    =
 
@@ -34,6 +34,9 @@ mon/%.o:mon/%.cc
 
 osdc/%.o:osdc/%.cc
 	$(CPP) -c $(CFLAGS) $^ -o $@
+	
+pipe/%.o:pipe/%.c
+	$(CC) -c $(CFLAGS) $^ -o $@
 
 common/%.o:common/%.c
 	$(CC) -c $(CFLAGS) $^ -o $@
@@ -49,9 +52,9 @@ dokan/%.o:dokan/%.c
 
 ALL:ceph-dokan.exe
 
-OBJECTS=libcephfs.o global/global_context.o global/global_init.o global/pidfile.o global/signal_handler.o common/types.o common/TextTable.o common/io_priority.o common/hobject.o common/ceph_frag.o common/addr_parsing.o common/Readahead.o common/histogram.o include/uuid.o common/ceph_fs.o common/bloom_filter.o common/ceph_hash.o common/ceph_strings.o common/assert.o  common/BackTrace.o  common/buffer.o  common/ceph_argparse.o  common/ceph_context.o common/lockdep.o common/Clock.o common/ceph_crypto.o  common/code_environment.o  common/common_init.o  common/ConfUtils.o  common/DecayCounter.o  common/dout.o  common/entity_name.o  common/environment.o  common/errno.o  common/Finisher.o  common/Formatter.o  common/hex.o common/LogEntry.o  common/Mutex.o  common/page.o  common/perf_counters.o  common/PrebufferedStreambuf.o  common/RefCountedObj.o    common/signal.o  common/snap_types.o  common/str_list.o  common/strtol.o  common/Thread.o  common/Throttle.o  common/Timer.o  common/util.o  common/config.o  common/armor.o common/crc32c.o common/crc32c-intel.o common/TrackedOp.o common/escape.o common/mime.o common/safe_io.o common/sctp_crc32.o common/secret.o common/utf8.o common/LogClient.o common/version.o log/Log.o  log/SubsystemMap.o log/Log.o  log/SubsystemMap.o auth/AuthAuthorizeHandler.o auth/AuthClientHandler.o auth/AuthMethodList.o auth/AuthServiceHandler.o auth/AuthSessionHandler.o auth/Crypto.o auth/KeyRing.o auth/RotatingKeyRing.o auth/none/AuthNoneAuthorizeHandler.o auth/cephx/CephxSessionHandler.o auth/cephx/CephxAuthorizeHandler.o auth/cephx/CephxProtocol.o   auth/cephx/CephxClientHandler.o auth/cephx/CephxServiceHandler.o auth/cephx/CephxKeyServer.o  crush/CrushCompiler.o crush/CrushWrapper.o crush/builder.o crush/crush.o crush/hash.o crush/mapper.o common/hobject.o msg/simple/Accepter.o msg/simple/PipeConnection.o msg/simple/DispatchQueue.o msg/Message.o msg/Messenger.o msg/msg_types.o msg/simple/Pipe.o msg/simple/SimpleMessenger.o osd/HitSet.o osd/OSDMap.o osd/OpRequest.o osd/osd_types.o mon/MonClient.o mon/MonMap.o mon/MonCap.o mds/flock.o mds/MDSMap.o mds/mdstypes.o mds/inode_backtrace.o osdc/Filer.o osdc/Journaler.o osdc/ObjectCacher.o osdc/Objecter.o osdc/Striper.o client/Client.o client/ClientSnapRealm.o client/Dentry.o client/Inode.o client/MetaRequest.o client/MetaSession.o client/Trace.o #include/uuid.o
+OBJECTS=libcephfs.o global/global_context.o global/global_init.o global/pidfile.o global/signal_handler.o common/types.o common/TextTable.o common/io_priority.o common/hobject.o common/ceph_frag.o common/addr_parsing.o common/Readahead.o common/histogram.o include/uuid.o common/ceph_fs.o common/bloom_filter.o common/ceph_hash.o common/ceph_strings.o common/assert.o  common/BackTrace.o  common/buffer.o  common/ceph_argparse.o  common/ceph_context.o common/lockdep.o common/Clock.o common/ceph_crypto.o  common/code_environment.o  common/common_init.o  common/ConfUtils.o  common/DecayCounter.o  common/dout.o  common/entity_name.o  common/environment.o  common/errno.o  common/Finisher.o  common/Formatter.o  common/hex.o common/LogEntry.o  common/Mutex.o  common/page.o  common/perf_counters.o  common/PrebufferedStreambuf.o  common/RefCountedObj.o    common/signal.o  common/snap_types.o  common/str_list.o  common/strtol.o  common/Thread.o  common/Throttle.o  common/Timer.o  common/util.o  common/config.o  common/armor.o common/crc32c.o common/crc32c-intel.o common/TrackedOp.o common/escape.o common/mime.o common/safe_io.o common/sctp_crc32.o common/secret.o common/utf8.o common/LogClient.o common/version.o log/Log.o  log/SubsystemMap.o log/Log.o  log/SubsystemMap.o auth/AuthAuthorizeHandler.o auth/AuthClientHandler.o auth/AuthMethodList.o auth/AuthServiceHandler.o auth/AuthSessionHandler.o auth/Crypto.o auth/KeyRing.o auth/RotatingKeyRing.o auth/none/AuthNoneAuthorizeHandler.o auth/cephx/CephxSessionHandler.o auth/cephx/CephxAuthorizeHandler.o auth/cephx/CephxProtocol.o   auth/cephx/CephxClientHandler.o auth/cephx/CephxServiceHandler.o auth/cephx/CephxKeyServer.o  crush/CrushCompiler.o crush/CrushWrapper.o crush/builder.o crush/crush.o crush/hash.o crush/mapper.o common/hobject.o msg/simple/Accepter.o msg/simple/PipeConnection.o msg/simple/DispatchQueue.o msg/Message.o msg/Messenger.o msg/msg_types.o msg/simple/Pipe.o msg/simple/SimpleMessenger.o osd/HitSet.o osd/OSDMap.o osd/OpRequest.o osd/osd_types.o mon/MonClient.o mon/MonMap.o mon/MonCap.o mds/flock.o mds/MDSMap.o mds/mdstypes.o mds/inode_backtrace.o osdc/Filer.o osdc/Journaler.o osdc/ObjectCacher.o osdc/Objecter.o osdc/Striper.o client/Client.o client/ClientSnapRealm.o client/Dentry.o client/Inode.o client/MetaRequest.o client/MetaSession.o client/Trace.o 
 
-libcephfs.dll:$(OBJECTS)
+libcephfs.dll:$(OBJECTS) $(BOOST_SYSTEM_LIB)
 	$(CPP) $(CFLAGS) $(CLIBS) -shared -o $@ $^ -lws2_32
 	@echo "**************************************************************"
 	@echo "MAKE "$@" FINISH"
@@ -63,7 +66,7 @@ test-cephfs.exe:test_cephfs.o libcephfs.dll
 	@echo "MAKE "$@" FINISH"
 	@echo "**************************************************************"
 
-ceph-dokan.exe:dokan/ceph_dokan.o dokan/posix_acl.o dokan/dokan.lib $(OBJECTS) $(BOOST_SYSTEM_LIB)
+ceph-dokan.exe:dokan/ceph_dokan.o dokan/posix_acl.o dokan/dokan.lib $(OBJECTS) $(BOOST_SYSTEM_LIB) pipe/pipe_client.o
 	$(CPP) $(CFLAGS) $(CLIBS) -o $@ $^ -lws2_32 -unicode
 	@echo "**************************************************************"
 	@echo "MAKE "$@" FINISH"
