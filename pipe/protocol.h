@@ -3,14 +3,14 @@
 #include <time.h>
 #ifdef _WIN32
 #include <windows.h>
-#define CEPH_CHANNEL_NAME "\\\\.\\pipe\\VRV.VDISK.2019.09.09\\"
+#define CEPH_CHANNEL_NAME "\\\\.\\pipe\\shutupandtakemymoney.2019.09.09\\"
 #else 
 #include <iostream>
 #define CEPH_CHANNEL_NAME  "/tmp/socket_vdisk"
 #define MAX_PATH 260
 #endif
 
-//电子文档行为定义
+//行为定义
 enum DDMAction {
 	DDM_DELETE, // from vdisk
 	DDM_MOVE, //  from vdisk

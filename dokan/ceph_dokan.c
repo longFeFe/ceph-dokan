@@ -4,7 +4,6 @@
 
 #define UNICODE
 #define _UNICODE
-
 #include <windows.h>
 #include <winbase.h>
 #include <stdio.h>
@@ -13,12 +12,17 @@
 #include "fileinfo.h"
 #include "libcephfs.h"
 #include "posix_acl.h"
+
+#include "pipe_client.h"
+#include "protocol.h"
+
 #include <fcntl.h>
 #include <signal.h>
 #include <sddl.h>
 
 #include <accctrl.h>
 #include <aclapi.h>
+
 
 #define MAX_PATH_CEPH 8192
 #define CEPH_DOKAN_IO_TIMEOUT 1000 * 60 * 2
@@ -27,36 +31,14 @@ BOOL WINAPI CCHandler(DWORD);
 
 static BOOL g_UseStdErr;
 static BOOL g_DebugMode;
-
+static char g_LetterName[MAX_PATH_CEPH] = "CEPH";
 int g_UID = 0;
 int g_GID = 0;
 BOOL g_UseACL  = FALSE;
 struct ceph_mount_info *cmount;
 
 
-//deprecated:MinGW Now support dirent, so use MinGW's
-/*only d_name[256] is usefull*/
-//struct dirent {
-//    unsigned long long d_ino;       /* inode number */
-//    unsigned short d_reclen;    /* length of this record */
-//    unsigned short d_namlen;    /* length of this record */
-//    unsigned char  d_type;      /* type of file; not supported
-//                                   by all file system types */
-//    unsigned long long d_time_create;
-//    unsigned long long d_time_access;
-//    unsigned long long d_time_write;
-//    unsigned long d_size;
-//    char          d_name[256]; /* filename */
-//};
-
-//MinGW Now support dirent, so use MinGW's
 #include <dirent.h>
-
-/* mingw/include/part/time.h already have this
-struct timespec {
-    unsigned long long tv_sec;
-    unsigned int tv_nsec;
-}; */ 
 
 #define __dev_t unsigned long long
 #define __ino_t unsigned long long
@@ -185,6 +167,17 @@ static void DbgPrint(char* format, ...)
     }
 }
 
+static void DdmPrint(char* format, ...) {
+    char buffer[512];
+    va_list argp;
+    va_start(argp, format);
+    vsprintf(buffer, format, argp);
+    va_end(argp);
+    OutputDebugString(buffer);
+    
+}
+
+
 static WCHAR MountPoint[MAX_PATH_CEPH] = L"M:";
 static char ceph_conf_file[MAX_PATH_CEPH];
 static WCHAR Wceph_conf_file[MAX_PATH_CEPH];
@@ -200,6 +193,12 @@ GetFilePath(
     wcsncat(filePath, FileName, wcslen(FileName));
 }
 
+static void GetAbsPath(PWCHAR    filePath, ULONG    numberOfElements, LPCWSTR FileName) {
+    RtlZeroMemory(filePath, numberOfElements * sizeof(WCHAR));
+    wcsncat(filePath, MountPoint, wcslen(MountPoint));
+    wcsncat(filePath, FileName, wcslen(FileName));
+}
+
 static void ToLinuxFilePath(char* filePath)
 {
     int i;
@@ -208,46 +207,27 @@ static void ToLinuxFilePath(char* filePath)
     }
 }
 
-static void
-PrintUserName(PDOKAN_FILE_INFO    DokanFileInfo)
-{
-    HANDLE    handle;
-    UCHAR buffer[1024];
-    DWORD returnLength;
-    WCHAR accountName[256];
-    WCHAR domainName[256];
-    DWORD accountLength = sizeof(accountName) / sizeof(WCHAR);
-    DWORD domainLength = sizeof(domainName) / sizeof(WCHAR);
-    PTOKEN_USER tokenUser;
-    SID_NAME_USE snu;
+/*************************************************************************************/
 
-    handle = DokanOpenRequestorToken(DokanFileInfo);
-    if (handle == INVALID_HANDLE_VALUE) {
-        DbgPrintW(L"  DokanOpenRequestorToken failed\n");
-        fwprintf(stderr, L"DokanOpenRequestorToken err %d\n", GetLastError());
-        return;
-    }
-
-    if (!GetTokenInformation(handle, TokenUser, buffer, sizeof(buffer), &returnLength)) {
-        DbgPrintW(L"  GetTokenInformaiton failed: %d\n", GetLastError());
-        CloseHandle(handle);
-        fwprintf(stderr, L"GetTokenInformation err\n");
-        return;
-    }
-
-    CloseHandle(handle);
-
-    tokenUser = (PTOKEN_USER)buffer;
-
-    if (!LookupAccountSid(NULL, tokenUser->User.Sid, accountName,
-            &accountLength, domainName, &domainLength, &snu)) {
-        DbgPrintW(L"  LookupAccountSid failed: %d\n", GetLastError());
-        return;
-    }
-
-    DbgPrintW(L"  AccountName: %s, DomainName: %s\n", accountName, domainName);
+int ReadDataFromUI2(void* receive, int receive_len) {
+    //FIXME: ERROR_MORE_DATA 
+    return PipeReceive(receive, receive_len);
 }
 
+int SendDataToUI2(int action, void* ctx, int ctx_len) {
+    pDdm_message pMsg = (pDdm_message)malloc(sizeof(ddm_message) + ctx_len);
+	ZeroMemory(pMsg, sizeof(ddm_message) + ctx_len);
+	pMsg->action = action;
+	pMsg->pid = 0;
+	pMsg->ctxLength = ctx_len;
+	memcpy(pMsg->ctx, ctx, ctx_len);
+	int send_len = PipeSend((void*)pMsg, sizeof(ddm_message) + ctx_len);
+    free(pMsg);
+    return (send_len - sizeof(ddm_message));
+}
+
+
+/**************************************************************************************/
 #define WinCephCheckFlag(val, flag) if (val&flag) { DbgPrintW(L"\t" #flag L"\n"); }
 #define AlwaysCheckFlag(val, flag) if (val&flag) { AlwaysPrintW(L"\t" #flag L"\n"); }
 
@@ -751,7 +731,7 @@ WinCephOpenDirectory(
         
         fdc.fd = fd;
         memcpy(&(DokanFileInfo->Context), &fdc, sizeof(fdc));
-        
+
         //DokanFileInfo->IsDirectory = TRUE;
         
         //fwprintf(stderr, L"OpenDirectory OK : %s [%d]\n", FileName, dirp);
@@ -1150,8 +1130,6 @@ WinCephFindFiles(
     int len = wchar_to_char(file_name, FileName, MAX_PATH_CEPH);
     
     ToLinuxFilePath(file_name);
-    
-    //fwprintf(stderr, L"FindFiles ceph_opendir : [%s]\n", FileName);
 
     if(g_UseACL)
     {
@@ -1195,7 +1173,6 @@ WinCephFindFiles(
         int len = char_to_wchar(d_name, result.d_name, MAX_PATH_CEPH);
         
         wcscpy(findData.cFileName, d_name);
-        
         //st_size
         findData.nFileSizeLow = (stbuf.st_size << 32)>>32;
         findData.nFileSizeHigh = stbuf.st_size >> 32;
@@ -1713,7 +1690,8 @@ WinCephGetVolumeInformation(
     DWORD        FileSystemNameSize,
     PDOKAN_FILE_INFO    DokanFileInfo)
 {
-    wcscpy(VolumeNameBuffer, L"Ceph");
+
+    
     *VolumeSerialNumber = 0x19831116;
     *MaximumComponentLength = 256;
     *FileSystemFlags = FILE_CASE_SENSITIVE_SEARCH | 
@@ -1722,7 +1700,27 @@ WinCephGetVolumeInformation(
                         FILE_UNICODE_ON_DISK |
                         FILE_PERSISTENT_ACLS;
 
-    wcscpy(FileSystemNameBuffer, L"Ceph");
+    // int bufferSize = strlen(g_LetterName);
+    // WCHAR* unicodeString = (WCHAR*)malloc(sizeof(WCHAR) * bufferSize);
+    // MultiByteToWideChar(CP_UTF8, 0, g_LetterName, -1, unicodeString, bufferSize);
+
+
+    // bufferSize = WideCharToMultiByte(CP_ACP, 0, unicodeString, -1, NULL, 0, NULL, NULL);
+    // CHAR *gbkString = (CHAR *)malloc(sizeof(CHAR) * bufferSize);
+    // WideCharToMultiByte(CP_ACP, 0, unicodeString, -1, gbkString, bufferSize, NULL, NULL);
+
+    // int wgbklength = strlen(gbkString);
+    // WCHAR* wgbk = (WCHAR*)malloc(sizeof(WCHAR) * wgbklength);
+    // MultiByteToWideChar(CP_ACP, 0, gbkString, -1, wgbk, wgbklength);
+
+    // wcscpy(VolumeNameBuffer, wgbk);
+    // wcscpy(FileSystemNameBuffer, wgbk);
+
+    // free(unicodeString);
+    // free(gbkString);
+    // free(wgbk);
+    wcscpy(VolumeNameBuffer, L"CEPH");
+    wcscpy(FileSystemNameBuffer, L"CEPH");
 
     return 0;
 }
@@ -1740,10 +1738,38 @@ WinCephGetDiskFreeSpace(
         fwprintf(stderr, L"ceph_statfs error [%d]\n", ret);
         return -1;
     }
+
+    ULONGLONG used =    vfsbuf.f_bsize * vfsbuf.f_blocks  - vfsbuf.f_bsize * vfsbuf.f_bfree;
+
+    WCHAR filepath[MAX_PATH_CEPH] = { 0 };
+    GetAbsPath(filepath, MAX_PATH_CEPH, L"/");
+
+    ctx_common request;
+    ZeroMemory(&request, sizeof(request));
+    request.isDirectory = DokanFileInfo->IsDirectory;
+    wchar_to_char(request.path, filepath, MAX_PATH_CEPH);
     
-    *FreeBytesAvailable     = vfsbuf.f_bsize * vfsbuf.f_bfree;
-    *TotalNumberOfBytes     = vfsbuf.f_bsize * vfsbuf.f_blocks;
-    *TotalNumberOfFreeBytes = vfsbuf.f_bsize * vfsbuf.f_bfree;
+    if (SendDataToUI2(DDM_CAPACITY, (void*)&request, sizeof(request)) == sizeof(request)) {
+        pDdm_msg_ret pResult = (pDdm_msg_ret)malloc(sizeof(ddm_message) + sizeof(ddm_capacity));
+        ReadDataFromUI2((void*)pResult, sizeof(ddm_message) + sizeof(ddm_capacity));
+        if (pResult->result != RET_ALLOW) {
+            DdmPrint("WinCephGetDiskFreeSpace Server Respone REJECT.\n");
+            free(pResult);
+            return -1;
+        }
+        pDdm_capacity pctx = (pDdm_capacity)pResult->ctx;
+        *TotalNumberOfBytes = pctx->total;
+        *FreeBytesAvailable = pctx->total - used;
+        *TotalNumberOfFreeBytes = pctx->total - used;
+        free(pResult);
+    } else {
+        DdmPrint("WinCephGetDiskFreeSpace Send data error.\n");
+        return -1;
+    }
+     
+    // *FreeBytesAvailable     = vfsbuf.f_bsize * vfsbuf.f_bfree;
+    // *TotalNumberOfBytes     = vfsbuf.f_bsize * vfsbuf.f_blocks;
+    // *TotalNumberOfFreeBytes = vfsbuf.f_bsize * vfsbuf.f_bfree;
     
     return 0;
 }
@@ -1769,7 +1795,7 @@ BOOL WINAPI ConsoleHandler(DWORD dwType)
         printf("break\n");
         break;
     default:
-        printf("Some other event\n");
+        DdmPrint("Some other event\n");
     }
     return TRUE;
 }
@@ -1777,7 +1803,7 @@ BOOL WINAPI ConsoleHandler(DWORD dwType)
 static void unmount_atexit(void) 
 {
     int ret = ceph_unmount(cmount);
-    printf("umount FINISHED [%d]\n", ret);
+    DdmPrint("umount FINISHED [%d]\n", ret);
 }
 
 int __cdecl
@@ -1832,13 +1858,13 @@ main(int argc, char* argv[])
         return -1;
     }
     
-    ceph_show_version();
+    //ceph_show_version();
 
     if (!SetConsoleCtrlHandler((PHANDLER_ROUTINE)ConsoleHandler, TRUE)) {
         fwprintf(stderr, L"Unable to install handler!\n");
-        return EXIT_FAILURE;
+       // return EXIT_FAILURE;
     }
-    
+
     g_DebugMode = FALSE;
     g_UseStdErr = FALSE;
 
@@ -1899,6 +1925,10 @@ main(int argc, char* argv[])
             command++;
             strcpy(sub_mount_path, argv[command]);
             break;
+        case L'n':
+            command++;
+            strcpy(g_LetterName, argv[command]);
+            break;
         default:
             fwprintf(stderr, L"unknown command: %s\n", wargv[command]);
             return -1;
@@ -1946,7 +1976,7 @@ main(int argc, char* argv[])
     WORD VerNum = MAKEWORD(2, 2);
     WSADATA VerData;
     if (WSAStartup(VerNum, &VerData) != 0) {
-      ceph_printf_stdout("FAILED to init winsock!!!");
+     // DdmPrint("FAILED to init winsock!!!");
       return -1;
     }
     
@@ -1956,56 +1986,27 @@ main(int argc, char* argv[])
     ret = ceph_conf_read_file(cmount, ceph_conf_file);
     if(ret)
     {
-        ceph_printf_stdout("ceph_conf_read_file error!");
+        DdmPrint("ceph_conf_read_file error!");
         return ret;
     }
-    ceph_printf_stdout("ceph_conf_read_file OK");
-    
+
     ret = ceph_mount(cmount, sub_mount_path);
     if(ret)
     {
-        ceph_printf_stdout("ceph_mount error!");
+        DdmPrint("ceph_mount return code: %d", ret);
         return ret;
     }
-    
-    ceph_printf_stdout("ceph_mnt OK");
-    
-    ceph_printf_stdout("ceph_mount OK");
-    
+    if (!PipeConnect()) {
+        DdmPrint("PipeConnect Error\n");
+        return -1;
+    }
+    DdmPrint("ceph_mnt OK\n");
     atexit(unmount_atexit);
     
-    sprintf(msg, "ceph_getcwd [%s]", ceph_getcwd(cmount));
-    ceph_printf_stdout(msg);
-
+   
     status = DokanMain(dokanOptions, dokanOperations);
-    switch (status) {
-    case DOKAN_SUCCESS:
-        ceph_printf_stdout("Success");
-        break;
-    case DOKAN_ERROR:
-        ceph_printf_stdout("Error");
-        break;
-    case DOKAN_DRIVE_LETTER_ERROR:
-        ceph_printf_stdout("Bad Drive letter");
-        break;
-    case DOKAN_DRIVER_INSTALL_ERROR:
-        ceph_printf_stdout("Can't install driver");
-        break;
-    case DOKAN_START_ERROR:
-        ceph_printf_stdout("Driver something wrong");
-        break;
-    case DOKAN_MOUNT_ERROR:
-        ceph_printf_stdout("Can't assign a drive letter");
-        break;
-    case DOKAN_MOUNT_POINT_ERROR:
-        ceph_printf_stdout("Mount point error");
-        break;
-    default:
-        sprintf(msg, "Unknown error: %d", status);
-        ceph_printf_stdout(msg);
-        break;
-    }
-
+    DdmPrint("DokanMain Return Code:%d\n", status);
+    PipeClose();
     free(dokanOptions);
     free(dokanOperations);
     return 0;

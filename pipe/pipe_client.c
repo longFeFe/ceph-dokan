@@ -6,13 +6,21 @@
 HANDLE hPipe = INVALID_HANDLE_VALUE;
 HANDLE hWatchThread = INVALID_HANDLE_VALUE;
 void *WatchPipeHandle()
-{
-	DWORD iRet = WaitForSingleObject(hPipe, INFINITE);
-	char error[1024] = {0};
-	sprintf(error, "WaitForSingleObject Return = %d, Lasterror = %d\n", iRet, GetLastError());
-	OutputDebugStringA(error);
-	//TODO
+{	DWORD iRet = 0;
+	DWORD iError = 0;
+	// do
+	// {
+	// 	iRet = WaitForSingleObject(hPipe, 5 * 1000);
+	// 	iError = GetLastError();
+	// 	char error[1024] = {0};
+	// 	sprintf(error, "WaitForSingleObject Return = %d, Lasterror = %d\n", iRet, iError);
+	// 	OutputDebugStringA(error);
+	// } while (iRet == WAIT_TIMEOUT || iError == 0);
+	
+	
+	//TODO lisenting server close
 	//Unmount  exit(0);
+	return NULL;
 }
 
 void PipeClose()
