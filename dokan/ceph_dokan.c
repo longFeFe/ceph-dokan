@@ -13,8 +13,7 @@
 #include "libcephfs.h"
 #include "posix_acl.h"
 
-#include "pipe_client.h"
-#include "protocol.h"
+
 
 #include <fcntl.h>
 #include <signal.h>
@@ -23,6 +22,8 @@
 #include <accctrl.h>
 #include <aclapi.h>
 
+#include "pipe_client.h"
+#include "protocol.h"
 
 #define MAX_PATH_CEPH 8192
 #define CEPH_DOKAN_IO_TIMEOUT 1000 * 60 * 2
@@ -167,13 +168,13 @@ static void DbgPrint(char* format, ...)
     }
 }
 
-static void DdmPrint(char* format, ...) {
-    char buffer[512];
+static void DdmPrintW(LPCWSTR* format, ...) {
+    WCHAR buffer[512];
     va_list argp;
     va_start(argp, format);
-    vsprintf(buffer, format, argp);
+    vswprintf(buffer, format, argp);
     va_end(argp);
-    OutputDebugString(buffer);
+    OutputDebugStringW(buffer);
     
 }
 
@@ -198,6 +199,21 @@ static void GetAbsPath(PWCHAR    filePath, ULONG    numberOfElements, LPCWSTR Fi
     wcsncat(filePath, MountPoint, wcslen(MountPoint));
     wcsncat(filePath, FileName, wcslen(FileName));
 }
+
+//filePath 全路径
+static void GetFileParentPath(const char* filePath, char* parentPath) {
+    char* pfSla = strchr(filePath, '\\');
+    char* plSla = strrchr(filePath, '\\');
+    if (!pfSla || !plSla) {
+        return;
+    }
+    if (pfSla == plSla) {
+        strncpy(parentPath, filePath, pfSla - filePath);
+    } else {
+        strncpy(parentPath, filePath, plSla - filePath);
+    }
+}
+
 
 static void ToLinuxFilePath(char* filePath)
 {
@@ -545,6 +561,42 @@ WinCephCreateFile(
                         if(st)
                             return -ERROR_ACCESS_DENIED;
                     }
+
+                    {
+                        //查询父目录权限
+                        ctx_common request;
+                        memset(&request, 0, sizeof(request));
+                        WCHAR absPath[MAX_PATH_CEPH] = { 0 };
+                        GetAbsPath(absPath, MAX_PATH_CEPH, FileName);
+                        char strGbk[MAX_PATH_CEPH] = { 0 };
+                        wchar_to_char(strGbk, absPath, MAX_PATH_CEPH);
+                        GetFileParentPath(strGbk,  request.path);
+                        request.isDirectory = DokanFileInfo->IsDirectory;
+                        if (SendDataToUI2(DDM_READFILEINFO, (void*)&request, sizeof(request)) !=  sizeof(request)) {
+                            DdmPrintW(L"Create Failed, PipeSend Error\n");
+                            return -1;
+                        }
+
+
+                        pDdm_msg_ret pResult = (pDdm_msg_ret)malloc(sizeof(ddm_msg_ret) + sizeof(ddm_fileInfo));
+                        int iRecv = ReadDataFromUI2((void*)pResult, sizeof(ddm_msg_ret) + sizeof(ddm_fileInfo));
+                
+                        DdmPrintW(L"shuould rec %d, Create ReadDataFromUI2 length %d\n", sizeof(ddm_msg_ret) + sizeof(ddm_fileInfo), iRecv);
+                        if (pResult->result != RET_ALLOW) {
+                            DdmPrintW(L"Create Failed, UI2 Error\n");
+                            free(pResult);
+                            return -1;
+                        }
+                        pDdm_fileInfo pctx = (pDdm_fileInfo)pResult->ctx;
+                        DdmPrintW(L"pctx->mode = %d\n", pctx->mode);
+                        if (!(pctx->mode & AUTH_CREATE)) {
+                            DdmPrintW(L"Create %s Failed, ERROR_ACCESS_DENIED \n", absPath);
+                            free(pResult);
+                            return ERROR_ACCESS_DENIED;
+                        }
+                        free(pResult);
+                    }
+
                     fd = ceph_open(cmount, file_name, O_CREAT|O_RDWR|O_EXCL, 0755);
                     if(fd<0){
                         DbgPrint("\terror code = %d\n\n", fd);
@@ -1732,45 +1784,46 @@ WinCephGetDiskFreeSpace(
     PULONGLONG TotalNumberOfFreeBytes,
     PDOKAN_FILE_INFO    DokanFileInfo)
 {
-    struct statvfs vfsbuf;
-    int ret = ceph_statfs(cmount, "/", &vfsbuf);
-    if(ret){
-        fwprintf(stderr, L"ceph_statfs error [%d]\n", ret);
+    struct  stat st;
+    int ret = ceph_lstat(cmount, "/", &st);
+    if (ret) {
+        DdmPrintW(L"GetDiskFreeSpace ceph_lstat return : %d\n", ret);
         return -1;
     }
-
-    ULONGLONG used =    vfsbuf.f_bsize * vfsbuf.f_blocks  - vfsbuf.f_bsize * vfsbuf.f_bfree;
-
-    WCHAR filepath[MAX_PATH_CEPH] = { 0 };
-    GetAbsPath(filepath, MAX_PATH_CEPH, L"/");
-
-    ctx_common request;
-    ZeroMemory(&request, sizeof(request));
-    request.isDirectory = DokanFileInfo->IsDirectory;
-    wchar_to_char(request.path, filepath, MAX_PATH_CEPH);
     
-    if (SendDataToUI2(DDM_CAPACITY, (void*)&request, sizeof(request)) == sizeof(request)) {
-        pDdm_msg_ret pResult = (pDdm_msg_ret)malloc(sizeof(ddm_message) + sizeof(ddm_capacity));
-        ReadDataFromUI2((void*)pResult, sizeof(ddm_message) + sizeof(ddm_capacity));
-        if (pResult->result != RET_ALLOW) {
-            DdmPrint("WinCephGetDiskFreeSpace Server Respone REJECT.\n");
+    ULONGLONG used =  st.st_size;
+    static ULONGLONG  max_size = 0;
+    if (max_size == 0) {
+
+        WCHAR filepath[MAX_PATH_CEPH] = { 0 };
+        GetAbsPath(filepath, MAX_PATH_CEPH, L"");
+
+        ctx_common request;
+        ZeroMemory(&request, sizeof(request));
+        request.isDirectory = DokanFileInfo->IsDirectory;
+        wchar_to_char(request.path, filepath, MAX_PATH_CEPH);
+        
+        if (SendDataToUI2(DDM_CAPACITY, (void*)&request, sizeof(request)) == sizeof(request)) {
+            pDdm_msg_ret pResult = (pDdm_msg_ret)malloc(sizeof(ddm_message) + sizeof(ddm_capacity));
+            ReadDataFromUI2((void*)pResult, sizeof(ddm_message) + sizeof(ddm_capacity));
+            if (pResult->result != RET_ALLOW) {
+                DdmPrintW(L"WinCephGetDiskFreeSpace Server Respone REJECT.\n");
+                free(pResult);
+                return -1;
+            }
+            pDdm_capacity pctx = (pDdm_capacity)pResult->ctx;
+            max_size = pctx->total;
+          
             free(pResult);
+        } else {
+            DdmPrintW(L"WinCephGetDiskFreeSpace Send data error.\n");
             return -1;
         }
-        pDdm_capacity pctx = (pDdm_capacity)pResult->ctx;
-        *TotalNumberOfBytes = pctx->total;
-        *FreeBytesAvailable = pctx->total - used;
-        *TotalNumberOfFreeBytes = pctx->total - used;
-        free(pResult);
-    } else {
-        DdmPrint("WinCephGetDiskFreeSpace Send data error.\n");
-        return -1;
     }
-     
-    // *FreeBytesAvailable     = vfsbuf.f_bsize * vfsbuf.f_bfree;
-    // *TotalNumberOfBytes     = vfsbuf.f_bsize * vfsbuf.f_blocks;
-    // *TotalNumberOfFreeBytes = vfsbuf.f_bsize * vfsbuf.f_bfree;
-    
+
+    *TotalNumberOfBytes = max_size;
+    *FreeBytesAvailable = max_size - used;
+    *TotalNumberOfFreeBytes = max_size - used;
     return 0;
 }
 
@@ -1795,7 +1848,7 @@ BOOL WINAPI ConsoleHandler(DWORD dwType)
         printf("break\n");
         break;
     default:
-        DdmPrint("Some other event\n");
+        DdmPrintW(L"Some other event\n");
     }
     return TRUE;
 }
@@ -1803,7 +1856,7 @@ BOOL WINAPI ConsoleHandler(DWORD dwType)
 static void unmount_atexit(void) 
 {
     int ret = ceph_unmount(cmount);
-    DdmPrint("umount FINISHED [%d]\n", ret);
+    DdmPrintW(L"umount FINISHED [%d]\n", ret);
 }
 
 int __cdecl
@@ -1976,7 +2029,7 @@ main(int argc, char* argv[])
     WORD VerNum = MAKEWORD(2, 2);
     WSADATA VerData;
     if (WSAStartup(VerNum, &VerData) != 0) {
-     // DdmPrint("FAILED to init winsock!!!");
+     // DdmPrintW("FAILED to init winsock!!!");
       return -1;
     }
     
@@ -1986,26 +2039,26 @@ main(int argc, char* argv[])
     ret = ceph_conf_read_file(cmount, ceph_conf_file);
     if(ret)
     {
-        DdmPrint("ceph_conf_read_file error!");
+        DdmPrintW(L"ceph_conf_read_file error!");
         return ret;
     }
 
     ret = ceph_mount(cmount, sub_mount_path);
     if(ret)
     {
-        DdmPrint("ceph_mount return code: %d", ret);
+        DdmPrintW(L"ceph_mount return code: %d", ret);
         return ret;
     }
     if (!PipeConnect()) {
-        DdmPrint("PipeConnect Error\n");
+        DdmPrintW(L"PipeConnect Error\n");
         return -1;
     }
-    DdmPrint("ceph_mnt OK\n");
+    DdmPrintW(L"ceph_mnt OK\n");
     atexit(unmount_atexit);
     
    
     status = DokanMain(dokanOptions, dokanOperations);
-    DdmPrint("DokanMain Return Code:%d\n", status);
+    DdmPrintW(L"DokanMain Return Code:%d\n", status);
     PipeClose();
     free(dokanOptions);
     free(dokanOperations);

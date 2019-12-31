@@ -46,9 +46,7 @@ BOOL PipeConnect()
 
 	if (hPipe == INVALID_HANDLE_VALUE)
 	{
-		char error[1024];
-		sprintf(error, "connect error = %d\n", GetLastError());
-		OutputDebugStringA(error);
+		OutputDebugStringW(L"pipe connect error\n");
 		return FALSE;
 	}
 	DWORD tid;
@@ -91,7 +89,7 @@ int PipeReceive(void *pContent, DWORD length)
 
 	if (GetLastError() == ERROR_MORE_DATA)
 	{
-		OutputDebugStringA("Error:ERROR_MORE_DATA\n");
+		OutputDebugStringW(L"Error:ERROR_MORE_DATA\n");
 	}
 	return length;
 }

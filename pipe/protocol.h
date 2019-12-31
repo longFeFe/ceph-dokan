@@ -31,12 +31,22 @@ enum DDMActionResult {
 	RET_FORBID, //禁止
 };
 
-
 //权限位
-#define AUTH_BASE_LINE  1
-#define DDM_READ  (AUTH_BASE_LINE << 1)
-#define DDM_WRITE (AUTH_BASE_LINE << 2)
-#define DDM_RW	  (DDM_READ | DDM_WRITE)
+#define AUTH_BASE_LINE  0x0001
+#define AUTH_READ  (AUTH_BASE_LINE << 0)
+#define AUTH_WRITE (AUTH_BASE_LINE << 1)
+#define AUTH_CREATE (AUTH_BASE_LINE << 2) //文件夹内是否允许创建
+
+#define AUTH_RW	  (AUTH_READ | AUTH_WRITE)
+
+#define AUTH_DOWNLOAD (AUTH_BASE_LINE << 3)
+#define AUTH_LOCK (AUTH_BASE_LINE << 4)
+#define AUTH_PRINT (AUTH_BASE_LINE << 5)
+#define AUTH_DELETE (AUTH_BASE_LINE << 6)
+//管理权限
+#define AUTH_ROOT (~AUTH_BASE_LINE | AUTH_BASE_LINE)
+
+
 
 
 
@@ -64,15 +74,15 @@ typedef struct _DDM_Message {
 
 
 //文件信息
-typedef struct  _DDM_Fileinfo {
-	char name[MAX_PATH];
-	time_t ctime;
-	time_t mtime;
-	time_t atime;
+typedef struct  _DDM_Fileinfo {	
+	unsigned long long ctime;
+	unsigned long long mtime;
+	unsigned long long atime;
 	unsigned long long  size; //byte
-	unsigned short  mode; //权限
 	int 	nlink;
 	int isDirectory; //0 = file , 1 = directory
+	unsigned short  mode; //权限
+	char name[MAX_PATH];
 } ddm_fileInfo, *pDdm_fileInfo;
 
 
