@@ -244,6 +244,39 @@ int SendDataToUI2(int action, void* ctx, int ctx_len) {
 }
 
 
+unsigned short FileAuth(LPCWSTR FileName) {
+    unsigned short auth = AUTH_ROOT;
+    //查询父目录权限
+    ctx_common request;
+    memset(&request, 0, sizeof(request));
+    WCHAR absPath[MAX_PATH_CEPH] = { 0 };
+    GetAbsPath(absPath, MAX_PATH_CEPH, FileName);
+    char strGbk[MAX_PATH_CEPH] = { 0 };
+    wchar_to_char(strGbk, absPath, MAX_PATH_CEPH);
+    GetFileParentPath(strGbk,  request.path);
+    //request.isDirectory = DokanFileInfo->IsDirectory;
+    if (SendDataToUI2(DDM_READFILEINFO, (void*)&request, sizeof(request)) !=  sizeof(request)) {
+        DdmPrintW(L"Create Failed, PipeSend Error\n");
+        return 0;
+    }
+
+
+    pDdm_msg_ret pResult = (pDdm_msg_ret)malloc(sizeof(ddm_msg_ret) + sizeof(ddm_fileInfo));
+    int iRecv = ReadDataFromUI2((void*)pResult, sizeof(ddm_msg_ret) + sizeof(ddm_fileInfo));
+
+    
+    if (pResult->result == RET_PERSONAL || pResult->result == RET_FAILED) {
+        //个人区 或者 父节点不存在
+    } else {
+        pDdm_fileInfo pctx = (pDdm_fileInfo)pResult->ctx;
+        //DdmPrintW(L"pctx->mode = %d\n", pctx->mode);
+        auth = pctx->mode;
+    }
+    free(pResult);
+    return auth;
+}
+
+
 /**************************************************************************************/
 #define WinCephCheckFlag(val, flag) if (val&flag) { DbgPrintW(L"\t" #flag L"\n"); }
 #define AlwaysCheckFlag(val, flag) if (val&flag) { AlwaysPrintW(L"\t" #flag L"\n"); }
@@ -563,38 +596,44 @@ WinCephCreateFile(
                             return -ERROR_ACCESS_DENIED;
                     }
 
-                    {
-                        //查询父目录权限
-                        ctx_common request;
-                        memset(&request, 0, sizeof(request));
-                        WCHAR absPath[MAX_PATH_CEPH] = { 0 };
-                        GetAbsPath(absPath, MAX_PATH_CEPH, FileName);
-                        char strGbk[MAX_PATH_CEPH] = { 0 };
-                        wchar_to_char(strGbk, absPath, MAX_PATH_CEPH);
-                        GetFileParentPath(strGbk,  request.path);
-                        request.isDirectory = DokanFileInfo->IsDirectory;
-                        if (SendDataToUI2(DDM_READFILEINFO, (void*)&request, sizeof(request)) !=  sizeof(request)) {
-                            DdmPrintW(L"Create Failed, PipeSend Error\n");
-                            return -1;
-                        }
+                    // {
+                    //     //查询父目录权限
+                    //     ctx_common request;
+                    //     memset(&request, 0, sizeof(request));
+                    //     WCHAR absPath[MAX_PATH_CEPH] = { 0 };
+                    //     GetAbsPath(absPath, MAX_PATH_CEPH, FileName);
+                    //     char strGbk[MAX_PATH_CEPH] = { 0 };
+                    //     wchar_to_char(strGbk, absPath, MAX_PATH_CEPH);
+                    //     GetFileParentPath(strGbk,  request.path);
+                    //     request.isDirectory = DokanFileInfo->IsDirectory;
+                    //     if (SendDataToUI2(DDM_READFILEINFO, (void*)&request, sizeof(request)) !=  sizeof(request)) {
+                    //         DdmPrintW(L"Create Failed, PipeSend Error\n");
+                    //         return -1;
+                    //     }
 
 
-                        pDdm_msg_ret pResult = (pDdm_msg_ret)malloc(sizeof(ddm_msg_ret) + sizeof(ddm_fileInfo));
-                        int iRecv = ReadDataFromUI2((void*)pResult, sizeof(ddm_msg_ret) + sizeof(ddm_fileInfo));
+                    //     pDdm_msg_ret pResult = (pDdm_msg_ret)malloc(sizeof(ddm_msg_ret) + sizeof(ddm_fileInfo));
+                    //     int iRecv = ReadDataFromUI2((void*)pResult, sizeof(ddm_msg_ret) + sizeof(ddm_fileInfo));
 
                         
-                        if (pResult->result == RET_PERSONAL || pResult->result == RET_FAILED) {
-                            //个人区 或者 父节点不存在
-                        } else {
-                            pDdm_fileInfo pctx = (pDdm_fileInfo)pResult->ctx;
-                            //DdmPrintW(L"pctx->mode = %d\n", pctx->mode);
-                            if (!(pctx->mode & AUTH_CREATE)) {
-                                DdmPrintW(L"Create %s Failed, ERROR_ACCESS_DENIED \n", absPath);
-                                free(pResult);
-                                return -ERROR_ACCESS_DENIED;
-                            }
-                        }
-                        free(pResult);
+                    //     if (pResult->result == RET_PERSONAL || pResult->result == RET_FAILED) {
+                    //         //个人区 或者 父节点不存在
+                    //     } else {
+                    //         pDdm_fileInfo pctx = (pDdm_fileInfo)pResult->ctx;
+                    //         //DdmPrintW(L"pctx->mode = %d\n", pctx->mode);
+                    //         if (!(pctx->mode & AUTH_CREATE)) {
+                    //             DdmPrintW(L"Create %s Failed, ERROR_ACCESS_DENIED \n", absPath);
+                    //             free(pResult);
+                    //             return -ERROR_ACCESS_DENIED;
+                    //         }
+                    //     }
+                    //     free(pResult);
+                    // }
+
+                    unsigned short auth =  FileAuth(FileName);
+                    if (!(auth & AUTH_CREATE)) {
+                         DdmPrintW(L"CreateFile %s ERROR_ACCESS_DENIED\n", FileName);
+                        return -ERROR_ACCESS_DENIED;
                     }
 
                     fd = ceph_open(cmount, file_name, O_CREAT|O_RDWR|O_EXCL, 0755);
@@ -697,14 +736,14 @@ WinCephCreateDirectory(
         return 0;
     }
     
-    if(g_UseACL)
-    {
-        /* permission check*/
-        int st = permission_walk_parent(cmount, file_name, g_UID, g_GID,
-                                      PERM_WALK_CHECK_WRITE|PERM_WALK_CHECK_EXEC);
-        if(st)
-            return -ERROR_ACCESS_DENIED;
-    }
+    // if(g_UseACL)
+    // {
+    //     /* permission check*/
+    //     int st = permission_walk_parent(cmount, file_name, g_UID, g_GID,
+    //                                   PERM_WALK_CHECK_WRITE|PERM_WALK_CHECK_EXEC);
+    //     if(st)
+    //         return -ERROR_ACCESS_DENIED;
+    // }
     
     struct stat st_buf;
     int ret = ceph_stat(cmount, file_name, &st_buf);
@@ -715,6 +754,13 @@ WinCephCreateDirectory(
         }
     }
     
+    unsigned short auth =  FileAuth(FileName);
+    if (!(auth & AUTH_CREATE)) {
+        DdmPrintW(L"CreateDirectory %s ERROR_ACCESS_DENIED\n", FileName);
+        return -ERROR_ACCESS_DENIED;
+    }
+
+
     ret = ceph_mkdir(cmount, file_name, 0755);
     if(ret == -2)
     {
@@ -1310,24 +1356,31 @@ WinCephDeleteFile(
 
     GetFilePath(filePath, MAX_PATH_CEPH, FileName);
 
-    DbgPrintW(L"DeleteFile %s\n", filePath);
+    DdmPrintW(L"DeleteFile %s\n", filePath);
 
     DokanResetTimeout(CEPH_DOKAN_IO_TIMEOUT, DokanFileInfo);
 
-    char file_name[MAX_PATH_CEPH];
-    int len = wchar_to_char(file_name, FileName, MAX_PATH_CEPH);
-    ToLinuxFilePath(file_name);
+    // char file_name[MAX_PATH_CEPH];
+    // int len = wchar_to_char(file_name, FileName, MAX_PATH_CEPH);
+    // ToLinuxFilePath(file_name);
+    //不检查DAC
+    // if(g_UseACL)
+    // {
+    //     /* permission check*/
+    //     int st = permission_walk_parent(cmount, file_name, g_UID, g_GID,
+    //                                   PERM_WALK_CHECK_WRITE|PERM_WALK_CHECK_EXEC);
+    //     if(st)
+    //         return -ERROR_ACCESS_DENIED;
+    // }
+    //cleanup和 close中会调用ceph接口删除文件
+    //这里做权限判断
 
-    if(g_UseACL)
-    {
-        /* permission check*/
-        int st = permission_walk_parent(cmount, file_name, g_UID, g_GID,
-                                      PERM_WALK_CHECK_WRITE|PERM_WALK_CHECK_EXEC);
-        if(st)
-            return -ERROR_ACCESS_DENIED;
+    unsigned short auth =  FileAuth(FileName);
+    if (!(auth & AUTH_DELETE)) {
+        DdmPrintW(L"DeleteFile %s ERROR_ACCESS_DENIED\n", filePath);
+        return -ERROR_ACCESS_DENIED;
     }
-    
-    //fwprintf(stderr, L"ceph_unlink [%s]\n", FileName);
+
     return 0;
 }
 
@@ -1344,9 +1397,17 @@ WinCephDeleteDirectory(
     ZeroMemory(filePath, sizeof(filePath));
     GetFilePath(filePath, MAX_PATH_CEPH, FileName);
 
-    DbgPrintW(L"DeleteDirectory %s\n", filePath);
+    DdmPrintW(L"DeleteDirectory %s\n", filePath);
 
     DokanResetTimeout(CEPH_DOKAN_IO_TIMEOUT, DokanFileInfo);
+
+    
+    unsigned short auth =  FileAuth(FileName);
+    if (!(auth & AUTH_DELETE)) {
+        DdmPrintW(L"DeleteDirectory %s ERROR_ACCESS_DENIED\n", filePath);
+        return -ERROR_ACCESS_DENIED;
+    }
+
 
     char file_name[MAX_PATH_CEPH];
     int len = wchar_to_char(file_name, FileName, MAX_PATH_CEPH);
@@ -1354,14 +1415,14 @@ WinCephDeleteDirectory(
     
     //fwprintf(stderr, L"DeleteDirectory ceph_rmdir [%s]\n", FileName);
 
-    if(g_UseACL)
-    {
-        /* permission check*/
-        int st = permission_walk_parent(cmount, file_name, g_UID, g_GID,
-                                      PERM_WALK_CHECK_WRITE|PERM_WALK_CHECK_EXEC);
-        if(st)
-            return -ERROR_ACCESS_DENIED;
-    }
+    // if(g_UseACL)
+    // {
+    //     /* permission check*/
+    //     int st = permission_walk_parent(cmount, file_name, g_UID, g_GID,
+    //                                   PERM_WALK_CHECK_WRITE|PERM_WALK_CHECK_EXEC);
+    //     if(st)
+    //         return -ERROR_ACCESS_DENIED;
+    // }
 
     struct ceph_dir_result *dirp;
     int ret = ceph_opendir(cmount, file_name, &dirp);
