@@ -227,6 +227,7 @@ static void ToLinuxFilePath(char* filePath)
 
 int ReadDataFromUI2(void* receive, int receive_len) {
     //FIXME: ERROR_MORE_DATA 
+    memset(receive, 0, receive_len);
     return PipeReceive(receive, receive_len);
 }
 
@@ -581,18 +582,17 @@ WinCephCreateFile(
                         pDdm_msg_ret pResult = (pDdm_msg_ret)malloc(sizeof(ddm_msg_ret) + sizeof(ddm_fileInfo));
                         int iRecv = ReadDataFromUI2((void*)pResult, sizeof(ddm_msg_ret) + sizeof(ddm_fileInfo));
                 
-                        DdmPrintW(L"shuould rec %d, Create ReadDataFromUI2 length %d\n", sizeof(ddm_msg_ret) + sizeof(ddm_fileInfo), iRecv);
-                        if (pResult->result != RET_ALLOW) {
+                        if (pResult->result != RET_ALLOW || pResult->ctxLength == 0) {
                             DdmPrintW(L"Create Failed, UI2 Error\n");
                             free(pResult);
                             return -1;
                         }
                         pDdm_fileInfo pctx = (pDdm_fileInfo)pResult->ctx;
-                        DdmPrintW(L"pctx->mode = %d\n", pctx->mode);
+                        //DdmPrintW(L"pctx->mode = %d\n", pctx->mode);
                         if (!(pctx->mode & AUTH_CREATE)) {
                             DdmPrintW(L"Create %s Failed, ERROR_ACCESS_DENIED \n", absPath);
                             free(pResult);
-                            return ERROR_ACCESS_DENIED;
+                            return -ERROR_ACCESS_DENIED;
                         }
                         free(pResult);
                     }
@@ -744,7 +744,7 @@ WinCephOpenDirectory(
     //GetFilePath(filePath, MAX_PATH_CEPH, FileName);
     wcscpy(filePath, FileName);
 
-    DbgPrintW(L"OpenDirectory : %s\n", filePath);
+   // DdmPrintW(L"OpenDirectory : %s\n", filePath);
     DokanResetTimeout(CEPH_DOKAN_IO_TIMEOUT, DokanFileInfo);
     
     char file_name[MAX_PATH_CEPH];
@@ -1164,97 +1164,139 @@ WinCephFindFiles(
     PFillFindData        FillFindData, // function pointer
     PDOKAN_FILE_INFO    DokanFileInfo)
 {
-    WCHAR                filePath[MAX_PATH_CEPH];
-    HANDLE                hFind;
+    WCHAR                absFilePath[MAX_PATH_CEPH];
     WIN32_FIND_DATAW    findData;
-    DWORD                error;
-    PWCHAR                yenStar = L"\\*";
     int count = 0;
 
-    GetFilePath(filePath, MAX_PATH_CEPH, FileName);
-
+    GetAbsPath(absFilePath, MAX_PATH_CEPH, FileName);
     DokanResetTimeout(CEPH_DOKAN_IO_TIMEOUT, DokanFileInfo);
 
-    wcscat(filePath, yenStar);
-    DbgPrintW(L"FindFiles :%s\n", filePath);
+    ctx_common ctx;
+	ZeroMemory(&ctx, sizeof(ctx));
+    wchar_to_char(ctx.path, absFilePath, MAX_PATH);
+	ctx.isDirectory =  1;//DokanFileInfo->IsDirectory;
     
-    char file_name[MAX_PATH_CEPH];
-    int len = wchar_to_char(file_name, FileName, MAX_PATH_CEPH);
-    
-    ToLinuxFilePath(file_name);
-
-    if(g_UseACL)
-    {
-        /* permission check*/
-        int st = permission_walk(cmount, file_name, g_UID, g_GID,
-                                      PERM_WALK_CHECK_READ|PERM_WALK_CHECK_EXEC);
-        if(st)
-            return -ERROR_ACCESS_DENIED;
-    }
-
-    struct ceph_dir_result *dirp;
-    int ret = ceph_opendir(cmount, file_name, &dirp);
-    if(ret != 0){
-        fwprintf(stderr, L"ceph_opendir error : %s [%d]\n", FileName, ret);
+    if (SendDataToUI2(DDM_READDIR , (void*)&ctx, sizeof(ctx)) != sizeof(ctx)) {
+        DdmPrintW(L"FindFiles SendDataToUI2 Error\n");
         return -1;
     }
+
+    pDdm_msg_ret pResult = (pDdm_msg_ret)malloc(sizeof(ddm_msg_ret));
+    ReadDataFromUI2((void*)pResult, sizeof(ddm_msg_ret));
+
+    //DdmPrintW(L"WinCephFindFiles result : [%s] [%d]\n", absFilePath, pResult->result);
+    //个人区,直接取CEPH的列表
+    if (pResult->result == RET_PERSONAL) {
+        char file_name[MAX_PATH_CEPH];
+        wchar_to_char(file_name, FileName, MAX_PATH_CEPH);
+        ToLinuxFilePath(file_name);
+        struct ceph_dir_result *dirp;
+        int ret = ceph_opendir(cmount, file_name, &dirp);
+        if(ret != 0){
+            DdmPrintW(L"ceph_opendir error : %s [%d]\n", FileName, ret);
+            free(pResult);
+            return -1;
+        }
     
-    //fwprintf(stderr, L"FindFiles ceph_opendir OK: %s\n", FileName);
+
+        while(1)
+        {
+            memset(&findData, 0, sizeof(findData));
+            struct dirent result;
+            struct stat stbuf;
+            int stmask;
+            
+            ret = ceph_readdirplus_r(cmount, dirp, &result, &stbuf, &stmask);
+            //DdmPrintW(L"ceph_readdirplus_r ret : [%d]\n", ret);
+            if(ret==0)
+                break;
+            if(ret<0){
+                fprintf(stderr, "FindFiles ceph_readdirplus_r error [%ls][ret=%d]\n", FileName, ret);
+                break;
+            }
+            
+            if(strcmp(result.d_name, ".")==0 || strcmp(result.d_name, "..")==0){
+            //     continue;
+            }
+            
+            //d_name
+            WCHAR d_name[MAX_PATH_CEPH];
+            int len = char_to_wchar(d_name, result.d_name, MAX_PATH_CEPH);
+            
+            wcscpy(findData.cFileName, d_name);
+            //st_size
+            findData.nFileSizeLow = (stbuf.st_size << 32)>>32;
+            findData.nFileSizeHigh = stbuf.st_size >> 32;
+            
+            //st_mtim
+            UnixTimeToFileTime(stbuf.st_mtime, &findData.ftCreationTime);
+            UnixTimeToFileTime(stbuf.st_mtime, &findData.ftLastAccessTime);
+            UnixTimeToFileTime(stbuf.st_mtime, &findData.ftLastWriteTime);
+            
+            //st_mode
+            if(S_ISDIR(stbuf.st_mode)){
+                //printf("[%s] is a Directory.............\n", result.d_name);
+                findData.dwFileAttributes |= FILE_ATTRIBUTE_DIRECTORY;
+            }
+            else if(S_ISREG(stbuf.st_mode)){
+                //printf("[%s] is a Regular File.............\n", result.d_name);
+                findData.dwFileAttributes |= FILE_ATTRIBUTE_NORMAL;
+            }
+            
+            FillFindData(&findData, DokanFileInfo);
+            count++;
+        }
     
-    while(1)
-    {
-        memset(&findData, 0, sizeof(findData));
-        struct dirent result;
-        struct stat stbuf;
-        int stmask;
-        
-        ret = ceph_readdirplus_r(cmount, dirp, &result, &stbuf, &stmask);
-        if(ret==0)
-            break;
-        if(ret<0){
-            fprintf(stderr, "FindFiles ceph_readdirplus_r error [%ls][ret=%d]\n", FileName, ret);
-            return ret;
+        ret = ceph_closedir(cmount, dirp);
+    } else {
+        //共享区  FIXME：放着不动就崩了
+        count = pResult->ctxLength / sizeof(ddm_fileInfo);
+        DdmPrintW(L"pResult->ctxLength = %d, count = %d\n", pResult->ctxLength, count);
+        if (count > 0) {
+
+            pDdm_fileInfo pArray = (pDdm_fileInfo)malloc(sizeof(ddm_fileInfo) * count);
+            ReadDataFromUI2((void*)pArray, sizeof(ddm_fileInfo) * count);
+
+            for (unsigned int i = 0; i < count; i++) {
+                ZeroMemory(&findData, sizeof(findData));
+                char path[MAX_PATH_CEPH] = { 0 };
+                wchar_to_char(path, FileName, MAX_PATH_CEPH);
+                ToLinuxFilePath(path);
+                strcat(path, "/");
+                strcat(path, pArray[i].name);
+                //文件名
+                char_to_wchar(findData.cFileName, pArray[i].name, MAX_PATH_CEPH);
+                struct stat stbuf;
+                if (ceph_lstat(cmount, path, &stbuf)) {
+                    DdmPrintW(L"file not exist: %s\n", findData.cFileName);
+                    continue;
+                }
+
+                
+                //st_size
+                findData.nFileSizeLow = (stbuf.st_size << 32)>>32;
+                findData.nFileSizeHigh = stbuf.st_size >> 32;
+                
+                //st_mtim
+                UnixTimeToFileTime(stbuf.st_mtime, &findData.ftCreationTime);
+                UnixTimeToFileTime(stbuf.st_mtime, &findData.ftLastAccessTime);
+                UnixTimeToFileTime(stbuf.st_mtime, &findData.ftLastWriteTime);
+                
+                //st_mode
+                if(S_ISDIR(stbuf.st_mode)){
+                    //printf("[%s] is a Directory.............\n", result.d_name);
+                    findData.dwFileAttributes |= FILE_ATTRIBUTE_DIRECTORY;
+                }
+                else if(S_ISREG(stbuf.st_mode)){
+                    //printf("[%s] is a Regular File.............\n", result.d_name);
+                    findData.dwFileAttributes |= FILE_ATTRIBUTE_NORMAL;
+                }
+                FillFindData(&findData, DokanFileInfo);
+            }
+            free(pArray);
         }
-        
-        if(strcmp(result.d_name, ".")==0 || strcmp(result.d_name, "..")==0){
-        //     continue;
-        }
-        
-        //d_name
-        WCHAR d_name[MAX_PATH_CEPH];
-        int len = char_to_wchar(d_name, result.d_name, MAX_PATH_CEPH);
-        
-        wcscpy(findData.cFileName, d_name);
-        //st_size
-        findData.nFileSizeLow = (stbuf.st_size << 32)>>32;
-        findData.nFileSizeHigh = stbuf.st_size >> 32;
-        
-        //st_mtim
-        UnixTimeToFileTime(stbuf.st_mtime, &findData.ftCreationTime);
-        UnixTimeToFileTime(stbuf.st_mtime, &findData.ftLastAccessTime);
-        UnixTimeToFileTime(stbuf.st_mtime, &findData.ftLastWriteTime);
-        
-        //st_mode
-        if(S_ISDIR(stbuf.st_mode)){
-            //printf("[%s] is a Directory.............\n", result.d_name);
-            findData.dwFileAttributes |= FILE_ATTRIBUTE_DIRECTORY;
-        }
-        else if(S_ISREG(stbuf.st_mode)){
-            //printf("[%s] is a Regular File.............\n", result.d_name);
-            findData.dwFileAttributes |= FILE_ATTRIBUTE_NORMAL;
-        }
-        
-        FillFindData(&findData, DokanFileInfo);
-        count++;
-        DbgPrintW(L"findData.cFileName is [%s]\n", findData.cFileName);
-        
-        //fprintf(stderr, "ceph_readdir [%d][%s]\n", count, result.d_name);
     }
-    
-    ret = ceph_closedir(cmount, dirp);
-
-    DbgPrintW(L"\tFindFiles return %d entries in %s\n\n", count, filePath);
-
+    free(pResult);
     return 0;
 }
 
@@ -1806,7 +1848,7 @@ WinCephGetDiskFreeSpace(
         if (SendDataToUI2(DDM_CAPACITY, (void*)&request, sizeof(request)) == sizeof(request)) {
             pDdm_msg_ret pResult = (pDdm_msg_ret)malloc(sizeof(ddm_message) + sizeof(ddm_capacity));
             ReadDataFromUI2((void*)pResult, sizeof(ddm_message) + sizeof(ddm_capacity));
-            if (pResult->result != RET_ALLOW) {
+            if (pResult->result != RET_ALLOW || pResult->ctxLength == 0) {
                 DdmPrintW(L"WinCephGetDiskFreeSpace Server Respone REJECT.\n");
                 free(pResult);
                 return -1;

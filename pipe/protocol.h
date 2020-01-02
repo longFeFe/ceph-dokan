@@ -26,6 +26,7 @@ enum DDMAction {
 
 //放行规则
 enum DDMActionResult {
+	RET_PERSONAL,
 	RET_UNDO, //撤销当前行为
 	RET_ALLOW,//允许通过
 	RET_FORBID, //禁止
