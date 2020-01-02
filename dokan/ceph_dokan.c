@@ -581,18 +581,18 @@ WinCephCreateFile(
 
                         pDdm_msg_ret pResult = (pDdm_msg_ret)malloc(sizeof(ddm_msg_ret) + sizeof(ddm_fileInfo));
                         int iRecv = ReadDataFromUI2((void*)pResult, sizeof(ddm_msg_ret) + sizeof(ddm_fileInfo));
-                
-                        if (pResult->result != RET_ALLOW || pResult->ctxLength == 0) {
-                            DdmPrintW(L"Create Failed, UI2 Error\n");
-                            free(pResult);
-                            return -1;
-                        }
-                        pDdm_fileInfo pctx = (pDdm_fileInfo)pResult->ctx;
-                        //DdmPrintW(L"pctx->mode = %d\n", pctx->mode);
-                        if (!(pctx->mode & AUTH_CREATE)) {
-                            DdmPrintW(L"Create %s Failed, ERROR_ACCESS_DENIED \n", absPath);
-                            free(pResult);
-                            return -ERROR_ACCESS_DENIED;
+
+                        
+                        if (pResult->result == RET_PERSONAL || pResult->result == RET_FAILED) {
+                            //个人区 或者 父节点不存在
+                        } else {
+                            pDdm_fileInfo pctx = (pDdm_fileInfo)pResult->ctx;
+                            //DdmPrintW(L"pctx->mode = %d\n", pctx->mode);
+                            if (!(pctx->mode & AUTH_CREATE)) {
+                                DdmPrintW(L"Create %s Failed, ERROR_ACCESS_DENIED \n", absPath);
+                                free(pResult);
+                                return -ERROR_ACCESS_DENIED;
+                            }
                         }
                         free(pResult);
                     }
@@ -1251,7 +1251,7 @@ WinCephFindFiles(
     } else {
         //共享区  FIXME：放着不动就崩了
         count = pResult->ctxLength / sizeof(ddm_fileInfo);
-        DdmPrintW(L"pResult->ctxLength = %d, count = %d\n", pResult->ctxLength, count);
+        //DdmPrintW(L"pResult->ctxLength = %d, count = %d\n", pResult->ctxLength, count);
         if (count > 0) {
 
             pDdm_fileInfo pArray = (pDdm_fileInfo)malloc(sizeof(ddm_fileInfo) * count);
@@ -1848,7 +1848,7 @@ WinCephGetDiskFreeSpace(
         if (SendDataToUI2(DDM_CAPACITY, (void*)&request, sizeof(request)) == sizeof(request)) {
             pDdm_msg_ret pResult = (pDdm_msg_ret)malloc(sizeof(ddm_message) + sizeof(ddm_capacity));
             ReadDataFromUI2((void*)pResult, sizeof(ddm_message) + sizeof(ddm_capacity));
-            if (pResult->result != RET_ALLOW || pResult->ctxLength == 0) {
+            if (pResult->ctxLength == 0) {
                 DdmPrintW(L"WinCephGetDiskFreeSpace Server Respone REJECT.\n");
                 free(pResult);
                 return -1;

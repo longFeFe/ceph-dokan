@@ -30,6 +30,7 @@ enum DDMActionResult {
 	RET_UNDO, //撤销当前行为
 	RET_ALLOW,//允许通过
 	RET_FORBID, //禁止
+	RET_FAILED,
 };
 
 //权限位
