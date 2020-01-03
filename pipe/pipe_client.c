@@ -5,29 +5,27 @@
 
 HANDLE hPipe = INVALID_HANDLE_VALUE;
 HANDLE hWatchThread = INVALID_HANDLE_VALUE;
-void *WatchPipeHandle()
-{	DWORD iRet = 0;
-	DWORD iError = 0;
-	// do
-	// {
-	// 	iRet = WaitForSingleObject(hPipe, 5 * 1000);
-	// 	iError = GetLastError();
-	// 	char error[1024] = {0};
-	// 	sprintf(error, "WaitForSingleObject Return = %d, Lasterror = %d\n", iRet, iError);
-	// 	OutputDebugStringA(error);
-	// } while (iRet == WAIT_TIMEOUT || iError == 0);
-	
-	
-	//TODO lisenting server close
-	//Unmount  exit(0);
+
+
+struct pipe_io_op* pIOFunction = NULL;
+void RegisterIO(struct pipe_io_op* pio) {
+	pIOFunction = pio;
+}
+
+void* WatchPipeHandle(void* p)
+{	
+	// DWORD iRet = 0;
+	// DWORD iError = 0;
+	if (pIOFunction)
+		pIOFunction->abort();
 	return NULL;
 }
 
 void PipeClose()
 {
 	CloseHandle(hPipe);
-	TerminateThread(hWatchThread, 0);
-	CloseHandle(hWatchThread);
+	//TerminateThread(hWatchThread, 0);
+	//CloseHandle(hWatchThread);
 	hPipe = INVALID_HANDLE_VALUE;
 	hWatchThread = INVALID_HANDLE_VALUE;
 }
@@ -49,8 +47,7 @@ BOOL PipeConnect()
 		OutputDebugStringW(L"pipe connect error\n");
 		return FALSE;
 	}
-	DWORD tid;
-	hWatchThread = CreateThread(NULL, 0, (LPTHREAD_START_ROUTINE)WatchPipeHandle, NULL, 0, &tid);
+	
 	return TRUE;
 }
 
@@ -69,8 +66,29 @@ int PipeSend(const void *pContent, DWORD length)
 		length,		// message length
 		&cbWritten, // bytes written
 		NULL);		// not overlapped
+	//管道裂开
+	DWORD nError = GetLastError();
+	if (nError == ERROR_MORE_DATA || nError == ERROR_SUCCESS) {
+		return cbWritten;
+	}
 
-	return cbWritten;
+
+	// switch (nError)
+	// {
+	// 	case ERROR_BROKEN_PIPE:
+	// 	case ERROR_PIPE_NOT_CONNECTED:
+	// 	case ERROR_OPERATION_ABORTED: //FIXME： 只有停止时才退出程序
+	// 	case ERROR_OPERATION_ABORTED
+	// 	break;
+	
+	// default:
+	// 	break;
+	// }
+
+	OutputDebugStringW(L"Send error \n");
+	DWORD tid;
+	hWatchThread = CreateThread(NULL, 0, (LPTHREAD_START_ROUTINE)WatchPipeHandle, NULL, 0, &tid);
+	return -nError;
 }
 
 int PipeReceive(void *pContent, DWORD length)
@@ -87,9 +105,16 @@ int PipeReceive(void *pContent, DWORD length)
 		&length,  // number of bytes read
 		NULL);	// not overlapped
 
-	if (GetLastError() == ERROR_MORE_DATA)
-	{
-		OutputDebugStringW(L"Error:ERROR_MORE_DATA\n");
+
+	//管道裂开
+	DWORD nError = GetLastError();
+	if (nError == ERROR_MORE_DATA || nError == ERROR_SUCCESS) {
+		if (nError == ERROR_MORE_DATA) OutputDebugStringW(L"Receive error: ERROR_MORE_DATA\n");
+		return length;
 	}
-	return length;
+
+	OutputDebugStringW(L"Receive error \n");
+	DWORD tid;
+	hWatchThread = CreateThread(NULL, 0, (LPTHREAD_START_ROUTINE)WatchPipeHandle, NULL, 0, &tid);
+	return -nError;
 }

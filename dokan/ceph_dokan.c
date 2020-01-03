@@ -223,15 +223,23 @@ static void ToLinuxFilePath(char* filePath)
     }
 }
 
+
+
 /*************************************************************************************/
 
-int ReadDataFromUI2(void* receive, int receive_len) {
+
+static void ServerAbort() {
+    DdmPrintW(L"Server Pipe abort..");
+    DokanRemoveMountPoint(MountPoint);
+}
+
+int ReadDataFromUI2(void* receive, DWORD receive_len) {
     //FIXME: ERROR_MORE_DATA 
     memset(receive, 0, receive_len);
     return PipeReceive(receive, receive_len);
 }
 
-int SendDataToUI2(int action, void* ctx, int ctx_len) {
+int SendDataToUI2(int action, void* ctx, DWORD ctx_len) {
     pDdm_message pMsg = (pDdm_message)malloc(sizeof(ddm_message) + ctx_len);
 	ZeroMemory(pMsg, sizeof(ddm_message) + ctx_len);
 	pMsg->action = action;
@@ -240,6 +248,7 @@ int SendDataToUI2(int action, void* ctx, int ctx_len) {
 	memcpy(pMsg->ctx, ctx, ctx_len);
 	int send_len = PipeSend((void*)pMsg, sizeof(ddm_message) + ctx_len);
     free(pMsg);
+
     return (send_len - sizeof(ddm_message));
 }
 
@@ -417,6 +426,14 @@ WinCephCreateFile(
         {
             if(S_ISREG(st_buf.st_mode))
             {
+                // //去掉写标志
+                // unsigned short auth =  FileAuth(FileName);
+                // if (!(auth & AUTH_WRITE)) {
+                //     DWORD writeflag = GENERIC_WRITE | FILE_SHARE_WRITE | STANDARD_RIGHTS_WRITE | FILE_SHARE_DELETE;
+                //     AccessMode &=  (~writeflag);
+                //     DdmPrintW(L"~writeflag %s\n", FileName);
+                // }
+                        
                 switch (CreationDisposition) {
                     case CREATE_NEW:
                         return -ERROR_FILE_EXISTS;
@@ -1480,7 +1497,6 @@ WinCephMoveFile(
     len = wchar_to_char(newfile_name, NewFileName, MAX_PATH_CEPH);
     ToLinuxFilePath(newfile_name);
     
-    //fwprintf(stderr, L"MoveFile ceph_rename [%s][%s]\n", FileName, NewFileName);
     if(g_UseACL)
     {
         /* permission check*/
@@ -1941,25 +1957,12 @@ WinCephUnmount(
     return 0;
 }
 
-BOOL WINAPI ConsoleHandler(DWORD dwType)
-{
-    switch(dwType) {
-    case CTRL_C_EVENT:
-        printf("ctrl-c\n");
-        exit(0);
-    case CTRL_BREAK_EVENT:
-        printf("break\n");
-        break;
-    default:
-        DdmPrintW(L"Some other event\n");
-    }
-    return TRUE;
-}
 
-static void unmount_atexit(void) 
+static void unmount_atexit() 
 {
     int ret = ceph_unmount(cmount);
     DdmPrintW(L"umount FINISHED [%d]\n", ret);
+    return;
 }
 
 int __cdecl
@@ -2015,12 +2018,6 @@ main(int argc, char* argv[])
     }
     
     //ceph_show_version();
-
-    if (!SetConsoleCtrlHandler((PHANDLER_ROUTINE)ConsoleHandler, TRUE)) {
-        fwprintf(stderr, L"Unable to install handler!\n");
-       // return EXIT_FAILURE;
-    }
-
     g_DebugMode = FALSE;
     g_UseStdErr = FALSE;
 
@@ -2158,13 +2155,16 @@ main(int argc, char* argv[])
     }
     DdmPrintW(L"ceph_mnt OK\n");
     atexit(unmount_atexit);
-    
+    struct pipe_io_op io;
+    io.abort = ServerAbort;
+    RegisterIO(&io);
    
     status = DokanMain(dokanOptions, dokanOperations);
     DdmPrintW(L"DokanMain Return Code:%d\n", status);
     PipeClose();
     free(dokanOptions);
     free(dokanOperations);
+    DdmPrintW(L"ceph-dokan exit : 0\n");
     return 0;
 }
 
