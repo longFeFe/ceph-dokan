@@ -32,7 +32,6 @@ BOOL WINAPI CCHandler(DWORD);
 
 static BOOL g_UseStdErr;
 static BOOL g_DebugMode;
-static char g_LetterName[MAX_PATH_CEPH] = "CEPH";
 int g_UID = 0;
 int g_GID = 0;
 BOOL g_UseACL  = FALSE;
@@ -180,6 +179,7 @@ static void DdmPrintW(LPCWSTR* format, ...) {
 
 
 static WCHAR MountPoint[MAX_PATH_CEPH] = L"M:";
+static CHAR LetterName[MAX_PATH] = "电子文档云盘";
 static char ceph_conf_file[MAX_PATH_CEPH];
 static WCHAR Wceph_conf_file[MAX_PATH_CEPH];
 static WCHAR Wargv0[MAX_PATH_CEPH];
@@ -1871,27 +1871,13 @@ WinCephGetVolumeInformation(
                         FILE_UNICODE_ON_DISK |
                         FILE_PERSISTENT_ACLS;
 
-    // int bufferSize = strlen(g_LetterName);
-    // WCHAR* unicodeString = (WCHAR*)malloc(sizeof(WCHAR) * bufferSize);
-    // MultiByteToWideChar(CP_UTF8, 0, g_LetterName, -1, unicodeString, bufferSize);
+    // WCHAR* strUnicode = new wchar_t[strlen(LetterName) * sizeof(WCHAR)];  
+    // wmemset(strUnicode, 0, strlen(LetterName) * sizeof(WCHAR));  
+    MultiByteToWideChar(CP_ACP, 0, LetterName, -1, VolumeNameBuffer, (strlen(LetterName) + 1) * sizeof(WCHAR));  
 
 
-    // bufferSize = WideCharToMultiByte(CP_ACP, 0, unicodeString, -1, NULL, 0, NULL, NULL);
-    // CHAR *gbkString = (CHAR *)malloc(sizeof(CHAR) * bufferSize);
-    // WideCharToMultiByte(CP_ACP, 0, unicodeString, -1, gbkString, bufferSize, NULL, NULL);
-
-    // int wgbklength = strlen(gbkString);
-    // WCHAR* wgbk = (WCHAR*)malloc(sizeof(WCHAR) * wgbklength);
-    // MultiByteToWideChar(CP_ACP, 0, gbkString, -1, wgbk, wgbklength);
-
-    // wcscpy(VolumeNameBuffer, wgbk);
-    // wcscpy(FileSystemNameBuffer, wgbk);
-
-    // free(unicodeString);
-    // free(gbkString);
-    // free(wgbk);
-    wcscpy(VolumeNameBuffer, L"CEPH");
-    wcscpy(FileSystemNameBuffer, L"CEPH");
+    //wcscpy(VolumeNameBuffer, LetterName);
+    wcscpy(FileSystemNameBuffer, VolumeNameBuffer);
 
     return 0;
 }
@@ -2023,7 +2009,7 @@ main(int argc, char* argv[])
 
     ZeroMemory(dokanOptions, sizeof(DOKAN_OPTIONS));
     dokanOptions->Version = DOKAN_VERSION;
-    dokanOptions->ThreadCount = 10;
+    dokanOptions->ThreadCount = 5;
 
     WCHAR wargv[32][512];
     for (command = 0; command < argc; command++) {
@@ -2080,7 +2066,8 @@ main(int argc, char* argv[])
             break;
         case L'n':
             command++;
-            strcpy(g_LetterName, argv[command]);
+            strcpy(LetterName, argv[command]);
+            //char_to_wchar(LetterName, argv[command], sizeof(LetterName));
             break;
         default:
             fwprintf(stderr, L"unknown command: %s\n", wargv[command]);
