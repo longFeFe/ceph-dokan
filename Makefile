@@ -2,9 +2,9 @@
 CC        = gcc -D__USE_FILE_OFFSET64 -DHAVE_CONFIG_H -I. -D__CEPH__ -D_FILE_OFFSET_BITS=64 -D_REENTRANT -D_THREAD_SAFE -D__STDC_FORMAT_MACROS -D_GNU_SOURCE -fno-strict-aliasing -fsigned-char -fno-builtin-malloc -fno-builtin-calloc -fno-builtin-realloc -fno-builtin-free -g -DPIC -mwindows
 CPP       = g++ -D__USE_FILE_OFFSET64 -DHAVE_CONFIG_H -I. -D__CEPH__ -D_FILE_OFFSET_BITS=64 -D_REENTRANT -D_THREAD_SAFE -D__STDC_FORMAT_MACROS -D_GNU_SOURCE -fno-strict-aliasing -fsigned-char -Wno-invalid-offsetof -fno-builtin-malloc -fno-builtin-calloc -fno-builtin-realloc -fno-builtin-free -g -DPIC -mwindows
 
-BOOST_PATH=E:\3rdparty\boost_1_63_0
+BOOST_PATH=D:\workspace\3rdpart\boost_1_63_0
 BOOST_SYSTEM_LIB=libboost_system-mgw51-mt-1_63.a
-CEPH_INCLUDE = -I./ -I./global -I./mingw_include -I$(BOOST_PATH) -I./pipe
+CEPH_INCLUDE = -I./ -I./global -I./mingw_include -I$(BOOST_PATH) -I./pipe -I./crypto
 CFLAGS   = $(CEPH_INCLUDE)
 CLIBS    =
 
@@ -66,7 +66,7 @@ test-cephfs.exe:test_cephfs.o libcephfs.dll
 	@echo "MAKE "$@" FINISH"
 	@echo "**************************************************************"
 
-ceph-dokan.exe:dokan/ceph_dokan.o dokan/posix_acl.o dokan/dokan.lib $(OBJECTS) $(BOOST_SYSTEM_LIB) pipe/pipe_client.o
+ceph-dokan.exe:dokan/ceph_dokan.o dokan/posix_acl.o dokan/dokan.lib $(OBJECTS) $(BOOST_SYSTEM_LIB) pipe/pipe_client.o libcrypto.dll
 	$(CPP) $(CFLAGS) $(CLIBS) -o $@ $^ -lws2_32 -unicode
 	@echo "**************************************************************"
 	@echo "MAKE "$@" FINISH"

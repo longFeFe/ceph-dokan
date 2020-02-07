@@ -6,6 +6,7 @@
 #define _UNICODE
 #include <windows.h>
 #include <winbase.h>
+#include <io.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include "dokan.h"
@@ -22,9 +23,11 @@
 #include <accctrl.h>
 #include <aclapi.h>
 
+
 #include "pipe_client.h"
 #include "protocol.h"
 
+#include "crypto_vrv.h"
 #define MAX_PATH_CEPH 8192
 #define CEPH_DOKAN_IO_TIMEOUT 1000 * 60 * 2
 
@@ -177,6 +180,17 @@ static void DdmPrintW(LPCWSTR* format, ...) {
     
 }
 
+static void DdmPrintA(LPCSTR* format, ...) {
+    CHAR buffer[512];
+    va_list argp;
+    va_start(argp, format);
+    vsprintf(buffer, format, argp);
+    va_end(argp);
+    OutputDebugStringA(buffer);
+    
+}
+
+
 
 static WCHAR MountPoint[MAX_PATH_CEPH] = L"M:";
 static CHAR LetterName[MAX_PATH] = "电子文档云盘";
@@ -233,20 +247,20 @@ static void ServerAbort() {
     DokanRemoveMountPoint(MountPoint);
 }
 
-int ReadDataFromUI2(void* receive, DWORD receive_len) {
+int ReadDataFromUI2(HANDLE hPipe, void* receive, DWORD receive_len) {
     //FIXME: ERROR_MORE_DATA 
     memset(receive, 0, receive_len);
-    return PipeReceive(receive, receive_len);
+    return PipeReceive(hPipe, receive, receive_len);
 }
 
-int SendDataToUI2(int action, void* ctx, DWORD ctx_len) {
+int SendDataToUI2(HANDLE hPipe, int action, void* ctx, DWORD ctx_len) {
     pDdm_message pMsg = (pDdm_message)malloc(sizeof(ddm_message) + ctx_len);
     ZeroMemory(pMsg, sizeof(ddm_message) + ctx_len);
     pMsg->action = action;
     pMsg->pid = 0;
     pMsg->ctxLength = ctx_len;
     memcpy(pMsg->ctx, ctx, ctx_len);
-    int send_len = PipeSend((void*)pMsg, sizeof(ddm_message) + ctx_len);
+    int send_len = PipeSend(hPipe, (void*)pMsg, sizeof(ddm_message) + ctx_len);
     free(pMsg);
 
     return (send_len - sizeof(ddm_message));
@@ -254,20 +268,22 @@ int SendDataToUI2(int action, void* ctx, DWORD ctx_len) {
 
 
 unsigned short FileAuth(LPCSTR FileName) {
+    HANDLE h = PipeConnect(CEPH_CHANNEL_NAME);
+
     unsigned short auth = AUTH_ROOT;
     //查询父目录权限
     ctx_common request;
     memset(&request, 0, sizeof(request));
     strcpy(request.path, FileName);
     //request.isDirectory = DokanFileInfo->IsDirectory;
-    if (SendDataToUI2(DDM_READFILEINFO, (void*)&request, sizeof(request)) !=  sizeof(request)) {
+    if (SendDataToUI2(h, DDM_READFILEINFO, (void*)&request, sizeof(request)) !=  sizeof(request)) {
         DdmPrintW(L"Create Failed, PipeSend Error\n");
         return 0;
     }
 
 
     pDdm_msg_ret pResult = (pDdm_msg_ret)malloc(sizeof(ddm_msg_ret) + sizeof(ddm_fileInfo));
-    int iRecv = ReadDataFromUI2((void*)pResult, sizeof(ddm_msg_ret) + sizeof(ddm_fileInfo));
+    int iRecv = ReadDataFromUI2(h, (void*)pResult, sizeof(ddm_msg_ret) + sizeof(ddm_fileInfo));
 
     
     if (pResult->result == RET_PERSONAL || pResult->result == RET_FAILED) {
@@ -277,7 +293,9 @@ unsigned short FileAuth(LPCSTR FileName) {
         //DdmPrintW(L"pctx->mode = %d\n", pctx->mode);
         auth = pctx->mode;
     }
+    DdmPrintA("FileAuth %s : %d\n", FileName, auth);
     free(pResult);
+    CloseHandle(h);
     return auth;
 }
 
@@ -388,6 +406,43 @@ WinCephCreateFile(
     int len = wchar_to_char(file_name, FileName, MAX_PATH_CEPH);
     ToLinuxFilePath(file_name);
 
+    // { 
+    //     //只读控制
+    //     //打开office文件时 标题栏的 只读 显示 以及只读控制
+    //     struct stat st_buf;
+    //     int ret = ceph_stat(cmount, file_name, &st_buf);
+    //     if(ret==0) /*File Exists*/
+    //     {
+    //         if(S_ISREG(st_buf.st_mode))
+    //         {                      
+    //             WCHAR  absPath[MAX_PATH_CEPH];
+    //             GetAbsPath(absPath, MAX_PATH_CEPH, FileName);
+    //             DWORD attrFlag =  GetFileAttributesW(absPath);
+    //             if (attrFlag & FILE_ATTRIBUTE_READONLY) {
+    //                 DdmPrintW(L"Open ReadOnly File:%s\n", FileName);
+                
+    //                 HANDLE  handle = CreateFileW(L"readonly.txt", AccessMode,//GENERIC_READ|GENERIC_WRITE|GENERIC_EXECUTE,
+    //                         ShareMode,
+    //                         NULL, // security attribute
+    //                         CreationDisposition,
+    //                         FlagsAndAttributes,// |FILE_FLAG_NO_BUFFERING,
+    //                         NULL); // template file handle
+
+    //                 if (handle == INVALID_HANDLE_VALUE) {
+    //                     DWORD error = GetLastError();
+    //                     DdmPrintW(L"error code = %d\n\n", error);
+    //                     return error * -1; // error codes are negated value of Windows System Error codes
+    //                 }
+    //                 CloseHandle(handle);
+    //             }
+    //         }
+    //     }
+    // }
+   
+
+
+    
+   
     struct fd_context fdc;
     memset(&fdc, 0, sizeof(struct fd_context));
     
@@ -397,13 +452,15 @@ WinCephCreateFile(
     
     if(FlagsAndAttributes&FILE_ATTRIBUTE_TEMPORARY)
     {
-        fwprintf(stderr, L"CreateFile ceph_open FILE_ATTRIBUTE_TEMPORARY[%s]\n", FileName);
+        //fwprintf(stderr, L"CreateFile ceph_open FILE_ATTRIBUTE_TEMPORARY[%s]\n", FileName);
         fdc.delete_on_close = TRUE;
+        DdmPrintW(L"DELETE_ON_CLOSE1 : %s\n", FileName);
     }
     if(FlagsAndAttributes&FILE_FLAG_DELETE_ON_CLOSE)
     {
-        fwprintf(stderr, L"CreateFile ceph_open FILE_FLAG_DELETE_ON_CLOSE[%s]\n", FileName);
+        //fwprintf(stderr, L"CreateFile ceph_open FILE_FLAG_DELETE_ON_CLOSE[%s]\n", FileName);
         fdc.delete_on_close = TRUE;
+        DdmPrintW(L"DELETE_ON_CLOSE2 : %s\n", FileName);
     }
 
     DokanResetTimeout(CEPH_DOKAN_IO_TIMEOUT, DokanFileInfo);
@@ -416,16 +473,61 @@ WinCephCreateFile(
     }
     else
     {
-        struct stat st_buf;
-        int ret = ceph_stat(cmount, file_name, &st_buf);
+        
+        int ret =  0;
+        { //查询文件是否存在
+            WCHAR absPath[MAX_PATH_CEPH] = { 0 };
+            GetAbsPath(absPath, MAX_PATH_CEPH, FileName);
+            ctx_common request;
+            memset(&request, 0, sizeof(request));
+            wchar_to_char(request.path, absPath, MAX_PATH_CEPH);
+            HANDLE h = PipeConnect(CEPH_CHANNEL_NAME);
+
+            if (SendDataToUI2(h, DDM_FILESTATUS, (void*)&request, sizeof(request)) !=  sizeof(request)) {
+                DdmPrintW(L"Create Failed, PipeSend Error\n");
+                return -ERROR_UNEXP_NET_ERR;
+            }
+
+
+            pDdm_msg_ret pResult = (pDdm_msg_ret)malloc(sizeof(ddm_msg_ret));
+            int iRecv = ReadDataFromUI2(h, (void*)pResult, sizeof(ddm_msg_ret));
+            PipeClose(h);
+        
+            if (pResult->result == RET_NOTFOUND) {
+                DdmPrintW(L"FileNotFound: %s\n", absPath);
+                ret = 1;
+            } else if (pResult->result == RET_PERSONAL) {
+                struct stat st_buf;
+                ret = ceph_stat(cmount, file_name, &st_buf);
+            }
+            free(pResult);
+        }
         if(ret==0) /*File Exists*/
         {
+            struct stat st_buf;
+            ceph_stat(cmount, file_name, &st_buf);
             if(S_ISREG(st_buf.st_mode))
             {                      
                 switch (CreationDisposition) {
-                    case CREATE_NEW:
+                    case CREATE_NEW: //文件已存在但是新建
+                        // //查看权限
+                        // {
+                        //     unsigned short auth = 0;
+                        //     WCHAR absPath[MAX_PATH_CEPH] = { 0 };
+                        //     GetAbsPath(absPath, MAX_PATH_CEPH, FileName);
+                        //     char strGbk[MAX_PATH_CEPH] = { 0 };
+                        //     wchar_to_char(strGbk, absPath, MAX_PATH_CEPH);
+                        //     char strParentPath[MAX_PATH_CEPH] = { 0 };
+                        //     GetFileParentPath(strGbk,  strParentPath);
+                        //     auth =  FileAuth(strParentPath);
+                        //     if (!(auth & AUTH_CREATE)) {
+                        //         DdmPrintW(L"CreateFile %s ERROR_ACCESS_DENIED\n", FileName);
+                        //         return -ERROR_ACCESS_DENIED;
+                        //     }
+                        // }
                         return -ERROR_FILE_EXISTS;
                     case TRUNCATE_EXISTING:
+                        DdmPrintW(L"CreateFile %s TRUNCATE_EXISTING\n", FileName);
                         //open O_TRUNC & return 0
                         if(g_UseACL)
                         {
@@ -449,6 +551,7 @@ WinCephCreateFile(
                         
                         return 0;
                     case OPEN_ALWAYS:
+                        DdmPrintW(L"CreateFile %s OPEN_ALWAYS\n", FileName);
                         //open & return ERROR_ALREADY_EXISTS
                         if(AccessMode & GENERIC_READ
                             || AccessMode & FILE_SHARE_READ
@@ -470,13 +573,35 @@ WinCephCreateFile(
                             || AccessMode & STANDARD_RIGHTS_WRITE
                             || AccessMode & FILE_SHARE_DELETE)
                         {
-                            if(g_UseACL)
-                            {
-                                /* permission check*/
-                                int st = permission_walk(cmount, file_name, g_UID, g_GID,
-                                                              PERM_WALK_CHECK_WRITE);
-                                if(st) fdc.read_only = 1;
+                            
+                            // if(g_UseACL)
+                            // {
+                            //     /* permission check*/
+                            //     int st = permission_walk(cmount, file_name, g_UID, g_GID,
+                            //                                   PERM_WALK_CHECK_WRITE);
+                            //     if(st) fdc.read_only = 1;
+                            // }
+                            WCHAR absPath[MAX_PATH_CEPH];
+                            GetAbsPath(absPath, MAX_PATH_CEPH, FileName);
+                            DWORD attrFlag =  GetFileAttributesW(absPath);
+                            if (attrFlag & FILE_ATTRIBUTE_READONLY) {
+                                HANDLE  handle = CreateFileW(L"readonly.txt", AccessMode,//GENERIC_READ|GENERIC_WRITE|GENERIC_EXECUTE,
+                                        ShareMode,
+                                        NULL, // security attribute
+                                        CreationDisposition,
+                                        FlagsAndAttributes,// |FILE_FLAG_NO_BUFFERING,
+                                        NULL); // template file handle
+
+                                if (handle == INVALID_HANDLE_VALUE) {
+                                    DWORD error = GetLastError();
+                                    DdmPrintW(L"CreateFileW error code = %d\n", error);
+                                    return error * -1; // error codes are negated value of Windows System Error codes
+                                }
+                                CloseHandle(handle);
+                                
+                                fdc.read_only = 1;
                             }
+
                         }
                         
                         if(fdc.read_only == 1)
@@ -484,7 +609,7 @@ WinCephCreateFile(
                         else
                             fd = ceph_open(cmount, file_name, O_RDWR, 0755);
                         if(fd<0){
-                            DbgPrint("\terror code = %d\n\n", fd);
+                            DbgPrint("\terror code = %d\n", fd);
                             fwprintf(stderr, L"CreateFile REG OPEN_ALWAYS ceph_open error [%s][ret=%d]\n", FileName, fd);
                             return fd;
                         }
@@ -496,6 +621,7 @@ WinCephCreateFile(
                         
                         return ERROR_ALREADY_EXISTS;
                     case OPEN_EXISTING:
+                        DdmPrintW(L"CreateFile %s OPEN_EXISTING\n", FileName);
                         //open & return 0
                         if(AccessMode & GENERIC_READ
                             || AccessMode & FILE_SHARE_READ
@@ -519,12 +645,33 @@ WinCephCreateFile(
                             || AccessMode & FILE_SHARE_DELETE)
                         {
                             //fwprintf(stderr, L"CreateFile REG OPEN_EXISTING ceph_open ACL WRITE [%s]\n", FileName);
-                            if(g_UseACL)
-                            {
-                                /* permission check*/
-                                int st = permission_walk(cmount, file_name, g_UID, g_GID,
-                                                              PERM_WALK_CHECK_WRITE);
-                                if(st) fdc.read_only = 1;
+                            // if(g_UseACL)
+                            // {
+                            //     /* permission check*/
+                            //     // int st = permission_walk(cmount, file_name, g_UID, g_GID,
+                            //     //                               PERM_WALK_CHECK_WRITE);
+                            //     // if(st) fdc.read_only = 1;
+
+                            // }
+                            WCHAR absPath[MAX_PATH_CEPH];
+                            GetAbsPath(absPath, MAX_PATH_CEPH, FileName);
+                            DWORD attrFlag =  GetFileAttributesW(absPath);
+                            if (attrFlag & FILE_ATTRIBUTE_READONLY) {
+                                HANDLE  handle = CreateFileW(L"readonly.txt", AccessMode,//GENERIC_READ|GENERIC_WRITE|GENERIC_EXECUTE,
+                                        ShareMode,
+                                        NULL, // security attribute
+                                        CreationDisposition,
+                                        FlagsAndAttributes,// |FILE_FLAG_NO_BUFFERING,
+                                        NULL); // template file handle
+
+                                if (handle == INVALID_HANDLE_VALUE) {
+                                    DWORD error = GetLastError();
+                                    DdmPrintW(L"CreateFileW error code = %d\n", error);
+                                    return error * -1; // error codes are negated value of Windows System Error codes
+                                }
+                                CloseHandle(handle);
+                                
+                                fdc.read_only = 1;
                             }
                         }
                         
@@ -545,6 +692,7 @@ WinCephCreateFile(
                         return 0;
                     case CREATE_ALWAYS:
                         //open O_TRUNC & return ERROR_ALREADY_EXISTS
+                        DdmPrintW(L"CreateFile %s CREATE_ALWAYS\n", FileName);
                         if(g_UseACL)
                         {
                             /* permission check*/
@@ -590,8 +738,8 @@ WinCephCreateFile(
         else /*File Not Exists*/
         {
             switch (CreationDisposition) {
-                case CREATE_NEW:
-                    //create & return 0
+                case CREATE_NEW:  //新建文件
+                     DdmPrintW(L"CreateNew %s\n", FileName);
                     if(g_UseACL)
                     {
                         /* permission check*/
@@ -601,8 +749,9 @@ WinCephCreateFile(
                             return -ERROR_ACCESS_DENIED;
                     }
 
-                    unsigned short auth = 0;
+                    //查看权限
                     {
+                        unsigned short auth = 0;
                         WCHAR absPath[MAX_PATH_CEPH] = { 0 };
                         GetAbsPath(absPath, MAX_PATH_CEPH, FileName);
                         char strGbk[MAX_PATH_CEPH] = { 0 };
@@ -610,12 +759,12 @@ WinCephCreateFile(
                         char strParentPath[MAX_PATH_CEPH] = { 0 };
                         GetFileParentPath(strGbk,  strParentPath);
                         auth =  FileAuth(strParentPath);
+                        if (!(auth & AUTH_CREATE)) {
+                            DdmPrintW(L"CreateFile %s ERROR_ACCESS_DENIED\n", FileName);
+                            return -ERROR_ACCESS_DENIED;
+                        }
                     }
                    
-                    if (!(auth & AUTH_CREATE)) {
-                        DdmPrintW(L"CreateFile %s ERROR_ACCESS_DENIED\n", FileName);
-                        return -ERROR_ACCESS_DENIED;
-                    }
                     
                    
                     fd = ceph_open(cmount, file_name, O_CREAT|O_RDWR|O_EXCL, 0755);
@@ -643,6 +792,26 @@ WinCephCreateFile(
                         if(st)
                             return -ERROR_ACCESS_DENIED;
                     }
+
+                    DdmPrintW(L"CreateAlways %s\n", FileName);
+
+
+                    //查看权限
+                    {
+                        unsigned short auth = 0;
+                        WCHAR absPath[MAX_PATH_CEPH] = { 0 };
+                        GetAbsPath(absPath, MAX_PATH_CEPH, FileName);
+                        char strGbk[MAX_PATH_CEPH] = { 0 };
+                        wchar_to_char(strGbk, absPath, MAX_PATH_CEPH);
+                        char strParentPath[MAX_PATH_CEPH] = { 0 };
+                        GetFileParentPath(strGbk,  strParentPath);
+                        auth =  FileAuth(strParentPath);
+                        if (!(auth & AUTH_CREATE)) {
+                            DdmPrintW(L"CreateFile %s ERROR_ACCESS_DENIED\n", FileName);
+                            return -ERROR_ACCESS_DENIED;
+                        }
+                    }
+
                     fd = ceph_open(cmount, file_name, O_CREAT|O_TRUNC|O_RDWR, 0755);
                     if(fd<0){
                         DbgPrint("\terror code = %d\n\n", fd);
@@ -667,6 +836,24 @@ WinCephCreateFile(
                         if(st)
                             return -ERROR_ACCESS_DENIED;
                     }
+                    DdmPrintW(L"OpenAlways %s\n", FileName);
+
+                    //查看权限
+                    {
+                        unsigned short auth = 0;
+                        WCHAR absPath[MAX_PATH_CEPH] = { 0 };
+                        GetAbsPath(absPath, MAX_PATH_CEPH, FileName);
+                        char strGbk[MAX_PATH_CEPH] = { 0 };
+                        wchar_to_char(strGbk, absPath, MAX_PATH_CEPH);
+                        char strParentPath[MAX_PATH_CEPH] = { 0 };
+                        GetFileParentPath(strGbk,  strParentPath);
+                        auth =  FileAuth(strParentPath);
+                        if (!(auth & AUTH_CREATE)) {
+                            DdmPrintW(L"CreateFile %s ERROR_ACCESS_DENIED\n", FileName);
+                            return -ERROR_ACCESS_DENIED;
+                        }
+                    }
+
                     fd = ceph_open(cmount, file_name, O_CREAT|O_RDWR, 0755);
                     if(fd<=0){
                         DbgPrint("\terror code = %d\n\n", fd);
@@ -676,9 +863,7 @@ WinCephCreateFile(
                     
                     fdc.fd = fd;
                     memcpy(&(DokanFileInfo->Context), &fdc, sizeof(fdc));
-                    //fwprintf(stderr, L"CreateFile ceph_open REG NOF OPEN_ALWAYS OK [%s][fd=%d][Context=%d]\n", FileName, fd,
-                    //    (int)DokanFileInfo->Context);
-                    
+   
                     ceph_chown(cmount, file_name, g_UID, g_GID);
                     fuse_init_acl(cmount, file_name, 00777); //S_IRWXU|S_IRWXG|S_IRWXO
                     return 0;
@@ -705,7 +890,7 @@ WinCephCreateDirectory(
     WCHAR filePath[MAX_PATH_CEPH];
     GetFilePath(filePath, MAX_PATH_CEPH, FileName);
 
-    DbgPrintW(L"CreateDirectory : %s\n", filePath);
+    DdmPrintW(L"CreateDirectory : %s\n", filePath);
     DokanResetTimeout(CEPH_DOKAN_IO_TIMEOUT, DokanFileInfo);
     
     char file_name[MAX_PATH_CEPH];
@@ -727,18 +912,45 @@ WinCephCreateDirectory(
     //         return -ERROR_ACCESS_DENIED;
     // }
     
-    struct stat st_buf;
-    int ret = ceph_stat(cmount, file_name, &st_buf);
-    if(ret==0){
-        if(S_ISDIR(st_buf.st_mode)){
-            fwprintf(stderr, L"CreateDirectory ceph_mkdir EXISTS [%s][ret=%d]\n", FileName, ret);
+    // struct stat st_buf;
+    // int ret = ceph_stat(cmount, file_name, &st_buf);
+    // if(ret==0){
+    //     if(S_ISDIR(st_buf.st_mode)){
+    //         fwprintf(stderr, L"CreateDirectory ceph_mkdir EXISTS [%s][ret=%d]\n", FileName, ret);
+    //         return -ERROR_ALREADY_EXISTS;
+    //     }
+    // }
+    
+    { //查询文件夹是否存在
+        WCHAR absPath[MAX_PATH_CEPH] = { 0 };
+        GetAbsPath(absPath, MAX_PATH_CEPH, FileName);
+        ctx_common request;
+        memset(&request, 0, sizeof(request));
+        wchar_to_char(request.path, absPath, MAX_PATH_CEPH);
+        DdmPrintW(L"PathFileExistsW %s\n", absPath);
+        HANDLE h = PipeConnect(CEPH_CHANNEL_NAME);
+
+        if (SendDataToUI2(h, DDM_FILESTATUS, (void*)&request, sizeof(request)) !=  sizeof(request)) {
+            DdmPrintW(L"Create Failed, PipeSend Error\n");
+            return -ERROR_UNEXP_NET_ERR;
+        }
+
+
+        pDdm_msg_ret pResult = (pDdm_msg_ret)malloc(sizeof(ddm_msg_ret));
+        int iRecv = ReadDataFromUI2(h, (void*)pResult, sizeof(ddm_msg_ret));
+        PipeClose(h);
+        int ret = pResult->result;
+        free(pResult);
+        if (ret != RET_NOTFOUND) {
+            //存在
             return -ERROR_ALREADY_EXISTS;
         }
     }
-    
 
-    unsigned short auth = 0;
+
+    //查看权限
     {
+        unsigned short auth = 0;
         WCHAR absPath[MAX_PATH_CEPH] = { 0 };
         GetAbsPath(absPath, MAX_PATH_CEPH, FileName);
         char strGbk[MAX_PATH_CEPH] = { 0 };
@@ -746,15 +958,13 @@ WinCephCreateDirectory(
         char strParentPath[MAX_PATH_CEPH] = { 0 };
         GetFileParentPath(strGbk,  strParentPath);
         auth =  FileAuth(strParentPath);
-    }
-                   
-    if (!(auth & AUTH_CREATE)) {
-        DdmPrintW(L"CreateDirectory %s ERROR_ACCESS_DENIED\n", FileName);
-        return -ERROR_ACCESS_DENIED;
+        if (!(auth & AUTH_CREATE)) {
+            DdmPrintW(L"CreateFile %s ERROR_ACCESS_DENIED\n", FileName);
+            return -ERROR_ACCESS_DENIED;
+        }
     }
 
-
-    ret = ceph_mkdir(cmount, file_name, 0755);
+    int ret = ceph_mkdir(cmount, file_name, 0755);
     if(ret == -2)
     {
         fwprintf(stderr, L"CreateDirectory ceph_mkdir ENOENT [%s][ret=%d]\n", FileName, ret);
@@ -991,7 +1201,12 @@ WinCephReadFile(
             return -1;
         }
         
-        int ret = ceph_read(cmount, fd_new, Buffer, BufferLength, Offset);
+        uint8_t* pDncode = (uint8_t*)malloc(BufferLength * sizeof(uint8_t));
+        memset(pDncode, 0, BufferLength * sizeof(uint8_t));
+        int ret = ceph_read(cmount, fd_new, (char*)pDncode, BufferLength, Offset);
+        SM4_ctr128_decrypt(pDncode, (uint8_t*)Buffer, ret, Offset);
+        free(pDncode);
+
         if(ret<0)
         {
             fwprintf(stderr, L"ceph_read IO error [Offset=%ld][ret=%d]\n", Offset, ret);
@@ -1003,7 +1218,12 @@ WinCephReadFile(
         return 0;
     }
     else{
-        int ret = ceph_read(cmount, fdc.fd, Buffer, BufferLength, Offset);
+        uint8_t* pDncode = (uint8_t*)malloc(BufferLength * sizeof(uint8_t));
+        memset(pDncode, 0, BufferLength * sizeof(uint8_t));
+        int ret = ceph_read(cmount, fdc.fd, (char*)pDncode, BufferLength, Offset);
+        SM4_ctr128_decrypt(pDncode, (uint8_t*)Buffer, ret, Offset);
+        free(pDncode);
+
         if(ret<0)
         {
             fwprintf(stderr, L"ceph_read IO error [Offset=%ld][ret=%d]\n", Offset, ret);
@@ -1049,8 +1269,11 @@ WinCephWriteFile(
     struct fd_context fdc;
     memcpy(&fdc, &(DokanFileInfo->Context), sizeof(fdc));
     
-    if(fdc.read_only == 1)
+    if(fdc.read_only == 1) {
+        DdmPrintW(L"WriteFile %s: ERROR_ACCESS_DENIED\n", FileName);
         return -ERROR_ACCESS_DENIED;
+    }
+        
     
     if(fdc.fd==0){
         char file_name[MAX_PATH_CEPH];
@@ -1065,8 +1288,11 @@ WinCephWriteFile(
             fwprintf(stderr, L"ceph_write reopen fd [fn:%s][fd_new=%d][Offset=%ld]\n", FileName, fd_new, Offset);
             return -1;
         }
-
-        int ret = ceph_write(cmount, fd_new, Buffer, NumberOfBytesToWrite, Offset);
+        uint8_t* pEncode = (uint8_t*)malloc(NumberOfBytesToWrite * sizeof(uint8_t));
+        memset(pEncode, 0, NumberOfBytesToWrite * sizeof(uint8_t));
+        SM4_ctr128_encrypt((uint8_t*)Buffer, pEncode, NumberOfBytesToWrite, Offset);
+        int ret = ceph_write(cmount, fd_new, (char*)pEncode, NumberOfBytesToWrite, Offset);
+        free(pEncode);
         if(ret<0)
         {
             fwprintf(stderr, L"ceph_write IO error [fn:%s][fd=%d][Offset=%lld][Length=%ld]\n", FileName, fd_new, Offset, NumberOfBytesToWrite);
@@ -1079,7 +1305,12 @@ WinCephWriteFile(
         return 0;
     }
     else{
-        int ret = ceph_write(cmount, fdc.fd, Buffer, NumberOfBytesToWrite, Offset);
+        
+        uint8_t* pEncode = (uint8_t*)malloc(NumberOfBytesToWrite * sizeof(uint8_t));
+        memset(pEncode, 0, NumberOfBytesToWrite * sizeof(uint8_t));
+        SM4_ctr128_encrypt((uint8_t*)Buffer, pEncode, NumberOfBytesToWrite, Offset);
+        int ret = ceph_write(cmount, fdc.fd, (char*)pEncode, NumberOfBytesToWrite, Offset);
+        free(pEncode);
         if(ret<0)
         {
             fwprintf(stderr, L"ceph_write IO error [fn:%s][fd=%d][Offset=%lld][Length=%ld]\n", FileName, fdc.fd, Offset, NumberOfBytesToWrite);
@@ -1133,7 +1364,6 @@ WinCephGetFileInformation(
     PDOKAN_FILE_INFO                DokanFileInfo)
 {
     WCHAR    filePath[MAX_PATH_CEPH];
-    BOOL    opened = FALSE;
 
     GetFilePath(filePath, MAX_PATH_CEPH, FileName);
 
@@ -1179,12 +1409,23 @@ WinCephGetFileInformation(
     
     //fill stbuf.st_mode
     if(S_ISDIR(stbuf.st_mode)){
-        //printf("[%s] is a Directory.............\n", result->d_name);
         HandleFileInformation->dwFileAttributes |= FILE_ATTRIBUTE_DIRECTORY;
     }
     else if(S_ISREG(stbuf.st_mode)){
-        //printf("[%s] is a Regular File.............\n", result->d_name);
-        HandleFileInformation->dwFileAttributes |= FILE_ATTRIBUTE_NORMAL;
+        WCHAR absPath[MAX_PATH_CEPH] = { 0 };
+        GetAbsPath(absPath, MAX_PATH_CEPH, FileName);
+        char utf8path[MAX_PATH_CEPH] = { 0 };
+        wchar_to_char(utf8path, absPath, MAX_PATH_CEPH);
+        unsigned short nAuth =  FileAuth(utf8path);
+        //DdmPrintW(L"CephGetFileInformation %s  nAuth:%d\n", FileName, nAuth);
+        if ((nAuth & AUTH_READ) && (!(nAuth & AUTH_WRITE))) {
+            HandleFileInformation->dwFileAttributes = FILE_ATTRIBUTE_READONLY;
+            //DdmPrintW(L"CephGetFileInformation ReadOnly %s\n", FileName);
+        } else {
+            HandleFileInformation->dwFileAttributes |= FILE_ATTRIBUTE_NORMAL;
+            //DdmPrintW(L"CephGetFileInformation NORMAL %s\n", FileName);
+        }
+        
     }
     
     //fill stbuf.st_ino
@@ -1215,15 +1456,17 @@ WinCephFindFiles(
     wchar_to_char(ctx.path, absFilePath, MAX_PATH);
 	ctx.isDirectory =  1;//DokanFileInfo->IsDirectory;
     
-    if (SendDataToUI2(DDM_READDIR , (void*)&ctx, sizeof(ctx)) != sizeof(ctx)) {
+    HANDLE h = PipeConnect(CEPH_CHANNEL_NAME);
+
+    if (SendDataToUI2(h, DDM_READDIR , (void*)&ctx, sizeof(ctx)) != sizeof(ctx)) {
         DdmPrintW(L"FindFiles SendDataToUI2 Error\n");
         return -1;
     }
 
     pDdm_msg_ret pResult = (pDdm_msg_ret)malloc(sizeof(ddm_msg_ret));
-    ReadDataFromUI2((void*)pResult, sizeof(ddm_msg_ret));
-
-    //DdmPrintW(L"WinCephFindFiles result : [%s] [%d]\n", absFilePath, pResult->result);
+    ReadDataFromUI2(h, (void*)pResult, sizeof(ddm_msg_ret));
+   
+    //DdmPrintW(L"WinCephFindFiles result  : [%s] [%d]\n", absFilePath, pResult->result);
     //个人区,直接取CEPH的列表
     if (pResult->result == RET_PERSONAL) {
         char file_name[MAX_PATH_CEPH];
@@ -1234,6 +1477,7 @@ WinCephFindFiles(
         if(ret != 0){
             DdmPrintW(L"ceph_opendir error : %s [%d]\n", FileName, ret);
             free(pResult);
+            CloseHandle(h);
             return -1;
         }
     
@@ -1294,7 +1538,7 @@ WinCephFindFiles(
         if (count > 0) {
 
             pDdm_fileInfo pArray = (pDdm_fileInfo)malloc(sizeof(ddm_fileInfo) * count);
-            ReadDataFromUI2((void*)pArray, sizeof(ddm_fileInfo) * count);
+            ReadDataFromUI2(h, (void*)pArray, sizeof(ddm_fileInfo) * count);
 
             for (unsigned int i = 0; i < count; i++) {
                 ZeroMemory(&findData, sizeof(findData));
@@ -1323,12 +1567,15 @@ WinCephFindFiles(
                 
                 //st_mode
                 if(S_ISDIR(stbuf.st_mode)){
-                    //printf("[%s] is a Directory.............\n", result.d_name);
                     findData.dwFileAttributes |= FILE_ATTRIBUTE_DIRECTORY;
                 }
-                else if(S_ISREG(stbuf.st_mode)){
-                    //printf("[%s] is a Regular File.............\n", result.d_name);
-                    findData.dwFileAttributes |= FILE_ATTRIBUTE_NORMAL;
+                else if(S_ISREG(stbuf.st_mode)) {
+                    
+                    if ((pArray[i].mode & AUTH_READ) && !(pArray[i].mode & AUTH_WRITE)) {
+                        findData.dwFileAttributes |= FILE_ATTRIBUTE_READONLY;
+                    } else {
+                        findData.dwFileAttributes |= FILE_ATTRIBUTE_NORMAL;
+                    }
                 }
                 FillFindData(&findData, DokanFileInfo);
             }
@@ -1336,6 +1583,7 @@ WinCephFindFiles(
         }
     }
     free(pResult);
+    CloseHandle(h);
     return 0;
 }
 
@@ -1513,10 +1761,40 @@ WinCephMoveFile(
         wchar_to_char(strGbk, absPath, MAX_PATH_CEPH);
         auth =  FileAuth(strGbk);
         if (!(auth == (unsigned short)AUTH_ROOT)) {
-            DdmPrintW(L"rename %s : ERROR_ACCESS_DENIED", FileName);
+            DdmPrintW(L"Rename %s : ERROR_ACCESS_DENIED\n", FileName);
             return -ERROR_ACCESS_DENIED;
         }
         
+    } else {
+        //同分区剪贴
+        ctx_move ctx;
+        memset(&ctx, 0, sizeof(ctx));
+        ctx.isDirectory = DokanFileInfo->IsDirectory;
+        WCHAR absPath[MAX_PATH_CEPH];
+        GetAbsPath(absPath, MAX_PATH_CEPH, FileName);
+        wchar_to_char(ctx.pathOld, absPath, sizeof(ctx.pathOld));
+
+        GetAbsPath(absPath, MAX_PATH_CEPH, NewFileName);
+        wchar_to_char(ctx.pathNew, absPath, sizeof(ctx.pathNew));
+
+        HANDLE h =  PipeConnect(CEPH_CHANNEL_NAME);
+        if (SendDataToUI2(h, DDM_MOVE , (void*)&ctx, sizeof(ctx)) != sizeof(ctx)) {
+            DdmPrintW(L"MoveFile SendDataToUI2 Error\n");
+            return -ERROR_NETWORK_BUSY;
+        }
+
+        pDdm_msg_ret pResult = (pDdm_msg_ret)malloc(sizeof(ddm_msg_ret));
+        ReadDataFromUI2(h, (void*)pResult, sizeof(ddm_msg_ret));
+   
+        if (pResult->result == RET_FORBID) {
+            free(pResult);
+            CloseHandle(h);
+            DdmPrintW(L"MoveFile  ERROR_ACCESS_DENIED\n");
+            return -ERROR_ACCESS_DENIED;
+        }
+        free(pResult);
+        CloseHandle(h);
+
     }
 
 
@@ -1922,10 +2200,10 @@ WinCephGetDiskFreeSpace(
         ZeroMemory(&request, sizeof(request));
         request.isDirectory = DokanFileInfo->IsDirectory;
         wchar_to_char(request.path, filepath, MAX_PATH_CEPH);
-        
-        if (SendDataToUI2(DDM_CAPACITY, (void*)&request, sizeof(request)) == sizeof(request)) {
+        HANDLE h = PipeConnect(CEPH_CHANNEL_NAME);
+        if (SendDataToUI2(h, DDM_CAPACITY, (void*)&request, sizeof(request)) == sizeof(request)) {
             pDdm_msg_ret pResult = (pDdm_msg_ret)malloc(sizeof(ddm_message) + sizeof(ddm_capacity));
-            ReadDataFromUI2((void*)pResult, sizeof(ddm_message) + sizeof(ddm_capacity));
+            ReadDataFromUI2(h, (void*)pResult, sizeof(ddm_message) + sizeof(ddm_capacity));
             if (pResult->ctxLength == 0) {
                 DdmPrintW(L"WinCephGetDiskFreeSpace Server Respone REJECT.\n");
                 free(pResult);
@@ -1933,7 +2211,7 @@ WinCephGetDiskFreeSpace(
             }
             pDdm_capacity pctx = (pDdm_capacity)pResult->ctx;
             max_size = pctx->total;
-          
+            CloseHandle(h);
             free(pResult);
         } else {
             DdmPrintW(L"WinCephGetDiskFreeSpace Send data error.\n");
@@ -2122,7 +2400,7 @@ main(int argc, char* argv[])
     dokanOperations->UnlockFile = WinCephUnlockFile;
     dokanOperations->GetFileSecurity = WinCephGetFileSecurity;
     dokanOperations->SetFileSecurity = WinCephSetFileSecurity;
-    dokanOperations->GetDiskFreeSpace = NULL;
+    //dokanOperations->GetDiskFreeSpace = NULL;
     dokanOperations->GetVolumeInformation = WinCephGetVolumeInformation;
     dokanOperations->Unmount = WinCephUnmount;
     dokanOperations->GetDiskFreeSpace = WinCephGetDiskFreeSpace;
@@ -2151,19 +2429,21 @@ main(int argc, char* argv[])
         DdmPrintW(L"ceph_mount return code: %d", ret);
         return ret;
     }
-    if (!PipeConnect()) {
-        DdmPrintW(L"PipeConnect Error\n");
-        return -1;
-    }
+    // if (!PipeConnect()) {
+    //     DdmPrintW(L"PipeConnect Error\n");
+    //     return -1;
+    // }
     DdmPrintW(L"ceph_mnt OK\n");
     atexit(unmount_atexit);
     struct pipe_io_op io;
     io.abort = ServerAbort;
     RegisterIO(&io);
-   
+    //初始化密钥KEY
+    SM4_init_key("beixinyuan");
+
     status = DokanMain(dokanOptions, dokanOperations);
     DdmPrintW(L"DokanMain Return Code:%d\n", status);
-    PipeClose();
+    //PipeClose();
     free(dokanOptions);
     free(dokanOperations);
     DdmPrintW(L"ceph-dokan exit : 0\n");

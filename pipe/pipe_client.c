@@ -3,7 +3,6 @@
 #include <stdio.h>
 #include <windows.h>
 
-HANDLE hPipe = INVALID_HANDLE_VALUE;
 HANDLE hWatchThread = INVALID_HANDLE_VALUE;
 
 
@@ -14,26 +13,22 @@ void RegisterIO(struct pipe_io_op* pio) {
 
 void* WatchPipeHandle(void* p)
 {	
-	// DWORD iRet = 0;
-	// DWORD iError = 0;
 	if (pIOFunction)
 		pIOFunction->abort();
 	return NULL;
 }
 
-void PipeClose()
+void PipeClose(HANDLE h)
 {
-	CloseHandle(hPipe);
-	//TerminateThread(hWatchThread, 0);
-	//CloseHandle(hWatchThread);
-	hPipe = INVALID_HANDLE_VALUE;
+	CloseHandle(h);
+	CloseHandle(hWatchThread);
 	hWatchThread = INVALID_HANDLE_VALUE;
 }
 
-BOOL PipeConnect()
+HANDLE PipeConnect(LPCSTR path)
 {
-	hPipe = CreateFileA(
-		CEPH_CHANNEL_NAME, // pipe name
+	return CreateFileA(
+		path, // pipe name
 		GENERIC_READ |	 // read and write access
 			GENERIC_WRITE,
 		0,			   // no sharing
@@ -41,23 +36,11 @@ BOOL PipeConnect()
 		OPEN_EXISTING, // opens existing pipe
 		0,			   // default attributes
 		NULL);		   // no template file
-
-	if (hPipe == INVALID_HANDLE_VALUE)
-	{
-		OutputDebugStringW(L"pipe connect error\n");
-		return FALSE;
-	}
-	
-	return TRUE;
 }
 
-int PipeSend(const void *pContent, DWORD length)
+int PipeSend(HANDLE hPipe, const void *pContent, DWORD length)
 {
 
-	if (hPipe == INVALID_HANDLE_VALUE)
-	{
-		return 0;
-	}
 	DWORD cbWritten = 0;
 	//send msg
 	BOOL fSuccess = WriteFile(
@@ -73,30 +56,18 @@ int PipeSend(const void *pContent, DWORD length)
 	}
 
 
-	// switch (nError)
-	// {
-	// 	case ERROR_BROKEN_PIPE:
-	// 	case ERROR_PIPE_NOT_CONNECTED:
-	// 	case ERROR_OPERATION_ABORTED: //FIXME： 只有停止时才退出程序
-	// 	case ERROR_OPERATION_ABORTED
-	// 	break;
-	
-	// default:
-	// 	break;
-	// }
-
 	OutputDebugStringW(L"Send error \n");
 	DWORD tid;
 	hWatchThread = CreateThread(NULL, 0, (LPTHREAD_START_ROUTINE)WatchPipeHandle, NULL, 0, &tid);
 	return -nError;
 }
 
-int PipeReceive(void *pContent, DWORD length)
+int PipeReceive(HANDLE hPipe, void* pContent,  DWORD length)
 {
-	if (hPipe == INVALID_HANDLE_VALUE)
-	{
-		return 0;
-	}
+	// if (hPipe == INVALID_HANDLE_VALUE)
+	// {
+	// 	return 0;
+	// }
 	ZeroMemory(pContent, length);
 	BOOL fSuccess = ReadFile(
 		hPipe,	// pipe handle

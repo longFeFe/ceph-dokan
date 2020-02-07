@@ -6,10 +6,10 @@ struct pipe_io_op {
     void (*abort)();
 };
 
-void PipeClose();
-BOOL PipeConnect();
-int PipeSend(const void* pContent, DWORD length);
-int PipeReceive(void* pContent,  DWORD length);
+void PipeClose(HANDLE);
+HANDLE PipeConnect(LPCSTR);
+int PipeSend(HANDLE, const void* pContent, DWORD length);
+int PipeReceive(HANDLE, void* pContent,  DWORD length);
 
 
 void RegisterIO(struct pipe_io_op*);

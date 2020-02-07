@@ -12,25 +12,28 @@
 
 //行为定义
 enum DDMAction {
-	DDM_DELETE, // from vdisk
-	DDM_MOVE, //  from vdisk
-	DDM_CREATE, //from vdisk
+	DDM_DELETE, // from dokan
+	DDM_MOVE, //  from dokan
+	DDM_CREATE, //from dokan
 	DDM_OPEN, //from hook
-	DDM_CAPACITY,//
-	DDM_READDIR, //
-	DDM_READFILEINFO,//
-	DDM_MOUNT,
-	DDM_UNMOUNT,
+	DDM_CAPACITY,// dokan
+	DDM_READDIR, // dokan
+	DDM_READFILEINFO,// dokan
+	DDM_FILESTATUS,
+	DDM_MOUNT, //
+	DDM_UNMOUNT, //
 	
 };
 
-//放行规则
+//查询结果
 enum DDMActionResult {
-	RET_PERSONAL,
+	RET_PERSONAL, //个人区的数据
 	RET_UNDO, //撤销当前行为
 	RET_ALLOW,//允许通过
 	RET_FORBID, //禁止
-	RET_FAILED,
+	RET_FAILED, //默认值
+	RET_NOTFOUND,
+	RET_NORMAL,
 };
 
 //权限位
