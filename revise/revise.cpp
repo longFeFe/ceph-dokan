@@ -154,6 +154,10 @@ BOOL FileMove(const char* path1, const char* path2) {
     size_t index2 = str_path2.rfind("\\");  
     if (index1 != string::npos && index2 != string::npos &&
         str_path1.substr(0, index1) == str_path1.substr(0, index2)) {
+        //office编辑文档会有临时文件重命名动作需要放过
+        if (IsOfficeTempFile(path1) || IsOfficeTempFile(path2)) {
+            return TRUE;
+        }
         DWORD auth =  FileAuth(path1);
         if (!(auth == (unsigned short)AUTH_ROOT)) {
             DdmPrintA("Rename %s : ERROR_ACCESS_DENIED\n", path1);
