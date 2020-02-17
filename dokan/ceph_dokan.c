@@ -229,12 +229,9 @@ WinCephCreateFile(
     PDOKAN_FILE_INFO         DokanFileInfo)
 {
     WCHAR filePath[MAX_PATH_CEPH];
-    //DWORD fileAttr;
-
     GetFilePath(filePath, MAX_PATH_CEPH, FileName);
 
-    DbgPrintW(L"CreateFile : %s\n", filePath);
-
+    //DdmPrintW(L"CreateFile : %s\n", filePath);
     //PrintUserName(DokanFileInfo);
 
     if (CreationDisposition == CREATE_NEW)
@@ -360,7 +357,6 @@ WinCephCreateFile(
             memset(&request, 0, sizeof(request));
             wchar_to_char(request.path, absPath, MAX_PATH_CEPH);
             HANDLE h = PipeConnect(CEPH_CHANNEL_NAME);
-
             if (SendDataToUI2(h, DDM_FILESTATUS, (void*)&request, sizeof(request)) !=  sizeof(request)) {
                 DdmPrintW(L"Create Failed, PipeSend Error\n");
                 return -ERROR_UNEXP_NET_ERR;
@@ -1999,6 +1995,7 @@ WinCephGetDiskFreeSpace(
     PULONGLONG TotalNumberOfFreeBytes,
     PDOKAN_FILE_INFO    DokanFileInfo)
 {
+
     struct  stat st;
     int ret = ceph_lstat(cmount, "/", &st);
     if (ret) {
@@ -2035,7 +2032,6 @@ WinCephGetDiskFreeSpace(
             return -1;
         }
     }
-
     *TotalNumberOfBytes = max_size;
     *FreeBytesAvailable = max_size - used;
     *TotalNumberOfFreeBytes = max_size - used;
@@ -2249,14 +2245,14 @@ main(int argc, char* argv[])
     //     DdmPrintW(L"PipeConnect Error\n");
     //     return -1;
     // }
-    DdmPrintW(L"ceph_mnt OK\n");
+    
     atexit(unmount_atexit);
     struct pipe_io_op io;
     io.abort = ServerAbort;
     RegisterIO(&io);
     //初始化密钥KEY
     SM4_init_key("beixinyuan");
-
+    DdmPrintW(L"ceph_mnt OK\n");
     status = DokanMain(dokanOptions, dokanOperations);
     DdmPrintW(L"DokanMain Return Code:%d\n", status);
     //PipeClose();

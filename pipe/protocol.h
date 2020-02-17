@@ -15,6 +15,7 @@ enum DDMAction {
 	DDM_DELETE, // from dokan
 	DDM_MOVE, //  from dokan
 	DDM_CREATE, //from dokan
+	DDM_RENAME,
 	DDM_OPEN, //from hook
 	DDM_CAPACITY,// dokan
 	DDM_READDIR, // dokan
@@ -48,6 +49,7 @@ enum DDMActionResult {
 #define AUTH_LOCK (AUTH_BASE_LINE << 4)
 #define AUTH_PRINT (AUTH_BASE_LINE << 5)
 #define AUTH_DELETE (AUTH_BASE_LINE << 6)
+#define AUTH_RENAME (AUTH_BASE_LINE << 7)
 //管理权限
 #define AUTH_ROOT (~AUTH_BASE_LINE | AUTH_BASE_LINE)
 
