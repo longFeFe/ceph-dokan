@@ -136,13 +136,14 @@ BOOL FileExist(const char* FileName) {
 }
 
 
-BOOL FileCreate(const char* FileName) {
+BOOL FileCreate(const char* FileName, BOOL isDirectory) {
     if (IsOfficeTempFile(FileName)) {
         return TRUE;
     }
     ctx_common request;
     memset(&request, 0, sizeof(request));
     strcpy(request.path, FileName);
+    request.isDirectory = isDirectory;
     int nRet = GetUI2ActionResult(DDM_CREATE, (void*)&request, sizeof(request));
     if (nRet == RET_FORBID) {
         DdmPrintA("Create %s ERROR_ACCESS_DENIED\n", FileName);
@@ -151,13 +152,14 @@ BOOL FileCreate(const char* FileName) {
     return TRUE;
 }
 
-BOOL FileDelete(const char* FileName) {
+BOOL FileDelete(const char* FileName, BOOL isDirecotry) {
     if (IsOfficeTempFile(FileName)) {
         return TRUE;
     }
     ctx_common request;
     memset(&request, 0, sizeof(request));
     strcpy(request.path, FileName);
+    request.isDirectory = isDirecotry;
     int nRet = GetUI2ActionResult(DDM_DELETE, (void*)&request, sizeof(request));
     if (nRet == RET_FORBID) {
         DdmPrintA("Delete %s ERROR_ACCESS_DENIED\n", FileName);

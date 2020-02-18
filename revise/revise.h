@@ -13,8 +13,8 @@ extern "C" {
     DWORD FileAuth(const char*);
     DWORD FileParentAuth(const char*);
     BOOL  FileExist(const char*);
-    BOOL FileCreate(const char*);
-    BOOL FileDelete(const char*);
+    BOOL FileCreate(const char*, BOOL);
+    BOOL FileDelete(const char*, BOOL);
     BOOL FileMove(const char*, const char*);
 #if defined(__cplusplus) || defined(c_plusplus)
 }

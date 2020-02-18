@@ -432,7 +432,7 @@ WinCephCreateFile(
                             || AccessMode & STANDARD_RIGHTS_WRITE
                             || AccessMode & FILE_SHARE_DELETE)
                         {
-                            
+                             
                             // if(g_UseACL)
                             // {
                             //     /* permission check*/
@@ -615,7 +615,7 @@ WinCephCreateFile(
                         GetAbsPath(absPath, MAX_PATH_CEPH, FileName);
                         char strGbk[MAX_PATH_CEPH] = { 0 };
                         wchar_to_char(strGbk, absPath, MAX_PATH_CEPH);
-                        if (!FileCreate(strGbk)) {
+                        if (!FileCreate(strGbk, FALSE)) {
                             DdmPrintW(L"CreateFile %s ERROR_ACCESS_DENIED\n", FileName);
                             return -ERROR_ACCESS_DENIED;
                         }
@@ -659,7 +659,7 @@ WinCephCreateFile(
                         GetAbsPath(absPath, MAX_PATH_CEPH, FileName);
                         char strGbk[MAX_PATH_CEPH] = { 0 };
                         wchar_to_char(strGbk, absPath, MAX_PATH_CEPH);
-                        if (!FileCreate(strGbk)) {
+                        if (!FileCreate(strGbk, FALSE)) {
                             DdmPrintW(L"CreateFile %s ERROR_ACCESS_DENIED\n", FileName);
                             return -ERROR_ACCESS_DENIED;
                         }
@@ -698,7 +698,7 @@ WinCephCreateFile(
                         GetAbsPath(absPath, MAX_PATH_CEPH, FileName);
                         char strGbk[MAX_PATH_CEPH] = { 0 };
                         wchar_to_char(strGbk, absPath, MAX_PATH_CEPH);
-                        if (!FileCreate(strGbk)) {
+                        if (!FileCreate(strGbk, FALSE)) {
                             DdmPrintW(L"CreateFile %s ERROR_ACCESS_DENIED\n", FileName);
                             return -ERROR_ACCESS_DENIED;
                         }
@@ -813,7 +813,7 @@ WinCephCreateDirectory(
         GetAbsPath(absPath, MAX_PATH_CEPH, FileName);
         char strGbk[MAX_PATH_CEPH] = { 0 };
         wchar_to_char(strGbk, absPath, MAX_PATH_CEPH);
-       if (!FileCreate(strGbk)) {
+       if (!FileCreate(strGbk, TRUE)) {
             DdmPrintW(L"CreateDirectory %s ERROR_ACCESS_DENIED\n", FileName);
             return -ERROR_ACCESS_DENIED;
         }
@@ -1490,7 +1490,7 @@ WinCephDeleteFile(
     GetAbsPath(absPath, MAX_PATH_CEPH, FileName);
     char strGbk[MAX_PATH_CEPH] = { 0 };
     wchar_to_char(strGbk, absPath, MAX_PATH_CEPH);
-    if (!FileDelete(strGbk)) {
+    if (!FileDelete(strGbk, FALSE)) {
         return -ERROR_ACCESS_DENIED;
     }
     DdmPrintW(L"DeleteFile %s\n", filePath);
@@ -1515,7 +1515,7 @@ WinCephDeleteDirectory(
     GetAbsPath(absPath, MAX_PATH_CEPH, FileName);
     char strGbk[MAX_PATH_CEPH] = { 0 };
     wchar_to_char(strGbk, absPath, MAX_PATH_CEPH);
-    if (!FileDelete(strGbk)) {
+    if (!FileDelete(strGbk, TRUE)) {
         return -ERROR_ACCESS_DENIED;
     }
     
