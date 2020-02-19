@@ -105,11 +105,11 @@ DWORD FileAuth(LPCSTR FileName) {
     int iRecv = ReadDataFromUI2(h, (void*)pResult, sizeof(ddm_msg_ret) + sizeof(ddm_fileInfo));
 
     
-    if (pResult->result == RET_PERSONAL || pResult->result == RET_FAILED || pResult->result == RET_NOTFOUND) {
+    if (pResult->result == RET_NOTFOUND) {
         //个人区 或者 节点不存在
+        auth = AUTH_ROOT;
     } else {
         pDdm_fileInfo pctx = (pDdm_fileInfo)pResult->ctx;
-        //DdmPrintW(L"pctx->mode = %d\n", pctx->mode);
         auth = pctx->mode;
     }
     DdmPrintA("FileAuth %s : %d\n", FileName, auth);

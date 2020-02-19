@@ -370,10 +370,11 @@ WinCephCreateFile(
             if (pResult->result == RET_NOTFOUND && (!IsOfficeTempFile(request.path))) {
                 DdmPrintW(L"FileNotFound: %s\n", absPath);
                 ret = 1;
-            } else {
+            } else if (pResult->result == RET_FAILED) {
+                //查询失败 由ceph查询
                 struct stat st_buf;
                 ret = ceph_stat(cmount, file_name, &st_buf);
-            }
+            } 
             free(pResult);
         }
         if(ret==0) /*File Exists*/
@@ -791,17 +792,17 @@ WinCephCreateDirectory(
         PipeClose(h);
         int ret = pResult->result;
         free(pResult);
-        //个人区文件
-        if (ret == RET_PERSONAL) {
+        //文件不存在
+        if (ret == RET_ALLOW) {
+            return -ERROR_ALREADY_EXISTS;
+        } else if(ret == RET_FAILED) {
             struct stat st_buf;
             int ret = ceph_stat(cmount, file_name, &st_buf);
             if(ret==0){
-                if(S_ISDIR(st_buf.st_mode)){
+                if(S_ISDIR(st_buf.st_mode)) {
                     return -ERROR_ALREADY_EXISTS;
                 }
             }
-        } else if(ret != RET_NOTFOUND){
-            return -ERROR_ALREADY_EXISTS;
         }
     }
 
@@ -1336,9 +1337,8 @@ WinCephFindFiles(
     pDdm_msg_ret pResult = (pDdm_msg_ret)malloc(sizeof(ddm_msg_ret));
     ReadDataFromUI2(h, (void*)pResult, sizeof(ddm_msg_ret));
    
-    //DdmPrintW(L"WinCephFindFiles result  : [%s] [%d]\n", absFilePath, pResult->result);
-    //个人区,直接取CEPH的列表
-    if (pResult->result == RET_PERSONAL) {
+    //个人区, node 不缓存 直接取CEPH的列表
+    if (pResult->result == RET_NOTFOUND) {
         char file_name[MAX_PATH_CEPH];
         wchar_to_char(file_name, FileName, MAX_PATH_CEPH);
         ToLinuxFilePath(file_name);
@@ -1401,7 +1401,7 @@ WinCephFindFiles(
         }
     
         ret = ceph_closedir(cmount, dirp);
-    } else {
+    } else if (pResult->result == RET_ALLOW) {
         //共享区  FIXME：放着不动就崩了
         count = pResult->ctxLength / sizeof(ddm_fileInfo);
         //DdmPrintW(L"pResult->ctxLength = %d, count = %d\n", pResult->ctxLength, count);
@@ -1451,6 +1451,8 @@ WinCephFindFiles(
             }
             free(pArray);
         }
+    } else {
+        DdmPrintW(L"FindFiles AccessDenfine: %s\n", FileName);
     }
     free(pResult);
     CloseHandle(h);

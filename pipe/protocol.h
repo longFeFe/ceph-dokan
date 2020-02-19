@@ -28,13 +28,10 @@ enum DDMAction {
 
 //查询结果
 enum DDMActionResult {
-	RET_PERSONAL, //个人区的数据
-	RET_UNDO, //撤销当前行为
+	RET_FAILED, //默认值
 	RET_ALLOW,//允许通过
 	RET_FORBID, //禁止
-	RET_FAILED, //默认值
 	RET_NOTFOUND,
-	RET_NORMAL,
 };
 
 //权限位
