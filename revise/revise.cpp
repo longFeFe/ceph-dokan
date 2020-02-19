@@ -168,7 +168,7 @@ BOOL FileDelete(const char* FileName, BOOL isDirecotry) {
     return TRUE;
 }
 
-BOOL FileMove(const char* path1, const char* path2) {
+BOOL FileMove(const char* path1, const char* path2, BOOL isDirectory) {
     string str_path1 = path1;
     string str_path2 = path2;
     size_t index1 = str_path1.rfind("\\");
@@ -185,7 +185,7 @@ BOOL FileMove(const char* path1, const char* path2) {
         memset(&request, 0, sizeof(request));
         strcpy(request.pathOld, path1);
         strcpy(request.pathNew, path2);
-
+        request.isDirectory = isDirectory;
         int nRet = GetUI2ActionResult(DDM_RENAME, (void*)&request, sizeof(request));
         if (nRet == RET_FORBID) {
             DdmPrintA("Rename %s ERROR_ACCESS_DENIED\n", path1);
@@ -197,7 +197,7 @@ BOOL FileMove(const char* path1, const char* path2) {
         memset(&request, 0, sizeof(request));
         strncpy(request.pathOld, path1, sizeof(request.pathOld));
         strncpy(request.pathNew, path2, sizeof(request.pathNew));
-
+        request.isDirectory = isDirectory;
         int nRet = GetUI2ActionResult(DDM_MOVE, (void*)&request, sizeof(request));
         if (nRet == RET_FORBID) {
             DdmPrintA("MoveFile %s ERROR_ACCESS_DENIED\n", path1);

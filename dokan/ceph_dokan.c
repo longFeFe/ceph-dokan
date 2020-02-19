@@ -1608,7 +1608,7 @@ WinCephMoveFile(
 
     GetAbsPath(absPath, MAX_PATH_CEPH, NewFileName);
     wchar_to_char(str_path2, absPath, sizeof(str_path2));
-    if (!FileMove(str_path1, str_path2)) {
+    if (!FileMove(str_path1, str_path2, DokanFileInfo->IsDirectory)) {
         return -ERROR_ACCESS_DENIED;
     }
 

@@ -15,7 +15,7 @@ extern "C" {
     BOOL  FileExist(const char*);
     BOOL FileCreate(const char*, BOOL);
     BOOL FileDelete(const char*, BOOL);
-    BOOL FileMove(const char*, const char*);
+    BOOL FileMove(const char*, const char*, BOOL);
 #if defined(__cplusplus) || defined(c_plusplus)
 }
 #endif
