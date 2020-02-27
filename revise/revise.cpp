@@ -72,7 +72,7 @@ BOOL IsOfficeTempFile(const char* ptr_name) {
         filename = filename.substr(index_point + 1);
     }
     //1 特殊开头
-    if (filename.find("~$") == 0) {
+    if (filename.find("~") == 0) {
         return TRUE;
     }
     //2 特殊结尾
@@ -80,11 +80,41 @@ BOOL IsOfficeTempFile(const char* ptr_name) {
     if ( index_point != string::npos) {
         string suffix = filename.substr(index_point + 1);
         if (suffix == "tmp")    return TRUE;
-    }
-    return FALSE;
+        if (suffix == "wbk")    return TRUE;
+        return FALSE;
+    } 
+    //没有后缀 一律返回TRUE
+    return TRUE;
 }
 
+int UI2TellMeFileExistWhere(const char* path) {
+    if (IsOfficeTempFile(path)) {
+        return 2;
+    }
 
+    ctx_common request;
+    memset(&request, 0, sizeof(request));
+    strncpy(request.path, path, sizeof(request.path));
+    HANDLE h = PipeConnect(CEPH_CHANNEL_NAME);
+    if (SendDataToUI2(h, DDM_FILESTATUS, (void*)&request, sizeof(request)) !=
+        sizeof(request)) {
+        DdmPrintW(L"Create Failed, PipeSend Error\n");
+        return 1;
+    }
+
+    pDdm_msg_ret pResult = (pDdm_msg_ret)malloc(sizeof(ddm_msg_ret));
+    int iRecv = ReadDataFromUI2(h, (void*)pResult, sizeof(ddm_msg_ret));
+    int ret = pResult->result;
+    PipeClose(h);
+    free(pResult);
+    if (ret == RET_NOTFOUND) {
+        DdmPrintA("FileNotFound: %s\n", path);
+        return 1;
+    } else if (ret == RET_FAILED) {
+        return 2;
+    }
+    return 0;
+}
 //文件权限
 DWORD FileAuth(LPCSTR FileName) {
     HANDLE h = PipeConnect(CEPH_CHANNEL_NAME);
@@ -112,7 +142,7 @@ DWORD FileAuth(LPCSTR FileName) {
         pDdm_fileInfo pctx = (pDdm_fileInfo)pResult->ctx;
         auth = pctx->mode;
     }
-    DdmPrintA("FileAuth %s : %d\n", FileName, auth);
+    //DdmPrintA("FileAuth %s : %d\n", FileName, auth);
     free(pResult);
     CloseHandle(h);
     return auth;
@@ -171,16 +201,18 @@ BOOL FileDelete(const char* FileName, BOOL isDirecotry) {
 BOOL FileMove(const char* path1, const char* path2, BOOL isDirectory) {
     string str_path1 = path1;
     string str_path2 = path2;
+    //office编辑文档会有临时文件重命名动作需要放过
+    if (IsOfficeTempFile(path1) || IsOfficeTempFile(path2)) {
+        return TRUE;
+    }
+
     size_t index1 = str_path1.rfind("\\");
     size_t index2 = str_path2.rfind("\\");  
 
     //rename
     if (index1 != string::npos && index2 != string::npos &&
         str_path1.substr(0, index1) == str_path1.substr(0, index2)) {
-        //office编辑文档会有临时文件重命名动作需要放过
-        if (IsOfficeTempFile(path1) || IsOfficeTempFile(path2)) {
-            return TRUE;
-        }
+       
         ctx_rename request;
         memset(&request, 0, sizeof(request));
         strcpy(request.pathOld, path1);

@@ -347,40 +347,27 @@ WinCephCreateFile(
         return 0;
     }
     else
-    {
-        
-        int ret =  0;
-        { //查询文件是否存在 TODO: 提取代码
-            WCHAR absPath[MAX_PATH_CEPH] = { 0 };
-            GetAbsPath(absPath, MAX_PATH_CEPH, FileName);
-            ctx_common request;
-            memset(&request, 0, sizeof(request));
-            wchar_to_char(request.path, absPath, MAX_PATH_CEPH);
-            HANDLE h = PipeConnect(CEPH_CHANNEL_NAME);
-            if (SendDataToUI2(h, DDM_FILESTATUS, (void*)&request, sizeof(request)) !=  sizeof(request)) {
-                DdmPrintW(L"Create Failed, PipeSend Error\n");
-                return -ERROR_UNEXP_NET_ERR;
-            }
-
-
-            pDdm_msg_ret pResult = (pDdm_msg_ret)malloc(sizeof(ddm_msg_ret));
-            int iRecv = ReadDataFromUI2(h, (void*)pResult, sizeof(ddm_msg_ret));
-            PipeClose(h);
-
-            if (pResult->result == RET_NOTFOUND && (!IsOfficeTempFile(request.path))) {
-                DdmPrintW(L"FileNotFound: %s\n", absPath);
-                ret = 1;
-            } else if (pResult->result == RET_FAILED) {
-                //查询失败 由ceph查询
-                struct stat st_buf;
-                ret = ceph_stat(cmount, file_name, &st_buf);
-            } 
-            free(pResult);
-        }
+    { 
+        // int ret = 0;
+        // { //查询文件是否存在
+        //     WCHAR absPath[MAX_PATH_CEPH] = { 0 };
+        //     GetAbsPath(absPath, MAX_PATH_CEPH, FileName);
+        //     char str_path[MAX_PATH_CEPH] = { 0 };
+        //     wchar_to_char(str_path, absPath, MAX_PATH_CEPH);
+        //     ret = UI2TellMeFileExistWhere(str_path);
+        //     if (ret == 2) {      
+        //         struct stat st_buf;
+        //         ret = ceph_stat(cmount, file_name, &st_buf);
+        //     }
+        // }
+        struct stat st_buf;
+        int ret = ceph_stat(cmount, file_name, &st_buf);
+       
+       // DdmPrintW(L" Create %s, pid = %d\n", FileName, DokanFileInfo->ProcessId);
         if(ret==0) /*File Exists*/
         {
-            struct stat st_buf;
-            ceph_stat(cmount, file_name, &st_buf);
+            //struct stat st_buf;
+            //ceph_stat(cmount, file_name, &st_buf);
             if(S_ISREG(st_buf.st_mode))
             {                      
                 switch (CreationDisposition) {
@@ -446,6 +433,7 @@ WinCephCreateFile(
                             GetAbsPath(absPath, MAX_PATH_CEPH, FileName);
                             DWORD attrFlag =  GetFileAttributesW(absPath);
                             if (attrFlag & FILE_ATTRIBUTE_READONLY) {
+                                DdmPrintW(L"readonly open mode: %s\n", absPath);
                                 HANDLE  handle = CreateFileW(L"readonly.txt", AccessMode,//GENERIC_READ|GENERIC_WRITE|GENERIC_EXECUTE,
                                         ShareMode,
                                         NULL, // security attribute
@@ -1601,22 +1589,39 @@ WinCephMoveFile(
     //     if(st)
     //         return -ERROR_ACCESS_DENIED;
     // }
-    
-    char str_path1[MAX_PATH_CEPH] = {0};
-    char str_path2[MAX_PATH_CEPH] = {0};
+ 
+    char str_pathfrom[MAX_PATH_CEPH] = {0};
+    char str_pathto[MAX_PATH_CEPH] = {0};
     WCHAR absPath[MAX_PATH_CEPH];
     GetAbsPath(absPath, MAX_PATH_CEPH, FileName);
-    wchar_to_char(str_path1, absPath, sizeof(str_path1));
+    wchar_to_char(str_pathfrom, absPath, sizeof(str_pathfrom));
 
     GetAbsPath(absPath, MAX_PATH_CEPH, NewFileName);
-    wchar_to_char(str_path2, absPath, sizeof(str_path2));
-    if (!FileMove(str_path1, str_path2, DokanFileInfo->IsDirectory)) {
+    wchar_to_char(str_pathto, absPath, sizeof(str_pathto));
+    if (!ReplaceIfExisting) {
+        int ret = UI2TellMeFileExistWhere(str_pathto);
+        if (ret == 0) {
+            DdmPrintW(L"file exist ui2.%s\n", absPath);
+            return -ERROR_ALREADY_EXISTS;
+        }
+        
+        if (ret == 2) {
+            struct stat st_buf;
+            if (0 == ceph_stat(cmount, newfile_name, &st_buf)) {
+                DdmPrintW(L"file exist ceph.%s\n", absPath);
+                return -ERROR_ALREADY_EXISTS;
+            }
+        }
+    }
+
+    if (!FileMove(str_pathfrom, str_pathto, DokanFileInfo->IsDirectory)) {
         return -ERROR_ACCESS_DENIED;
     }
 
+
     int ret = ceph_rename(cmount, file_name, newfile_name);
     if(ret){
-        DbgPrint("\terror code = %d\n\n", ret);
+        DdmPrintW(L"ceph_rename error code = %d\n\n", ret);
         return ret;
     }
     return ret;
@@ -2035,8 +2040,8 @@ WinCephGetDiskFreeSpace(
         }
     }
     *TotalNumberOfBytes = max_size;
-    *FreeBytesAvailable = max_size - used;
-    *TotalNumberOfFreeBytes = max_size - used;
+    *FreeBytesAvailable = (max_size - used) < 0 ? 0 : max_size - used;
+    *TotalNumberOfFreeBytes = *FreeBytesAvailable;
     return 0;
 }
 

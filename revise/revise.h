@@ -9,6 +9,7 @@ extern "C" {
     void DdmPrintA(LPCSTR format, ...);
     int SendDataToUI2(HANDLE hPipe, int action, void* ctx, DWORD ctx_len);
     int ReadDataFromUI2(HANDLE hPipe, void* receive, DWORD receive_len);
+    int UI2TellMeFileExistWhere(const char*); // return 0 文件存在， 1文件不存在, 2向ceph询问
     BOOL IsOfficeTempFile(const char*);
     DWORD FileAuth(const char*);
     DWORD FileParentAuth(const char*);

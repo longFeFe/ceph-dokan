@@ -15,12 +15,14 @@ enum DDMAction {
 	DDM_DELETE, // from dokan
 	DDM_MOVE, //  from dokan
 	DDM_CREATE, //from dokan
-	DDM_RENAME,
-	DDM_OPEN, //from hook
-	DDM_CAPACITY,// dokan
-	DDM_READDIR, // dokan
-	DDM_READFILEINFO,// dokan
-	DDM_FILESTATUS,
+	DDM_RENAME, //from dokan
+	DDM_OPEN, 
+	DDM_CAPACITY,//from dokan
+	DDM_READDIR, //from dokan
+	DDM_READFILEINFO,//from dokan
+	DDM_FILESTATUS,//from dokan
+	DDM_MODIFY,
+	DDM_CLOSE,
 	DDM_MOUNT, //
 	DDM_UNMOUNT, //
 	
