@@ -62,7 +62,7 @@ int GetUI2ActionResult(int action, void* request, int length) {
 }
 
 
-//windows路径格式
+//windows路径格式 FIXME 判断规则
 BOOL IsOfficeTempFile(const char* ptr_name) {
     size_t index_point = string::npos;
     string filename(ptr_name);
@@ -81,10 +81,10 @@ BOOL IsOfficeTempFile(const char* ptr_name) {
         string suffix = filename.substr(index_point + 1);
         if (suffix == "tmp")    return TRUE;
         if (suffix == "wbk")    return TRUE;
-        return FALSE;
+        //return FALSE;
     } 
     //没有后缀 一律返回TRUE
-    return TRUE;
+    return FALSE;
 }
 
 int UI2TellMeFileExistWhere(const char* path) {

@@ -22,7 +22,7 @@ with this program. If not, see <http://www.gnu.org/licenses/>.
 #ifndef _DOKAN_H_
 #define _DOKAN_H_
 
-#define DOKAN_DRIVER_NAME	L"dokan.sys"
+#define DOKAN_DRIVER_NAME	L"vvdisk.sys"
 
 #ifndef _M_X64	
   #ifdef _EXPORTING

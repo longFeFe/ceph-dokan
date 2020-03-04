@@ -766,7 +766,6 @@ WinCephCreateDirectory(
         ctx_common request;
         memset(&request, 0, sizeof(request));
         wchar_to_char(request.path, absPath, MAX_PATH_CEPH);
-        DdmPrintW(L"PathFileExistsW %s\n", absPath);
         HANDLE h = PipeConnect(CEPH_CHANNEL_NAME);
 
         if (SendDataToUI2(h, DDM_FILESTATUS, (void*)&request, sizeof(request)) !=  sizeof(request)) {
@@ -1508,9 +1507,7 @@ WinCephDeleteDirectory(
     if (!FileDelete(strGbk, TRUE)) {
         return -ERROR_ACCESS_DENIED;
     }
-    
-    DdmPrintW(L"DeleteDirectory %s\n", filePath);
-
+    DdmPrintW(L"DeleteDirectory %s\n", absPath);
     char file_name[MAX_PATH_CEPH];
     int len = wchar_to_char(file_name, FileName, MAX_PATH_CEPH);
     ToLinuxFilePath(file_name);
@@ -2258,7 +2255,7 @@ main(int argc, char* argv[])
     io.abort = ServerAbort;
     RegisterIO(&io);
     //初始化密钥KEY
-    SM4_init_key("beixinyuan");
+    SM4_init_key(_key16);
     DdmPrintW(L"ceph_mnt OK\n");
     status = DokanMain(dokanOptions, dokanOperations);
     DdmPrintW(L"DokanMain Return Code:%d\n", status);

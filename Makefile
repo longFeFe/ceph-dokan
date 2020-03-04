@@ -69,7 +69,7 @@ test-cephfs.exe:test_cephfs.o libcephfs.dll
 	@echo "MAKE "$@" FINISH"
 	@echo "**************************************************************"
 
-ceph-dokan.exe:dokan/ceph_dokan.o dokan/posix_acl.o pipe/pipe_client.o revise/revise.o  $(OBJECTS) $(BOOST_SYSTEM_LIB) dokan/dokan.lib libcrypto.dll 
+ceph-dokan.exe:dokan/ceph_dokan.o dokan/posix_acl.o pipe/pipe_client.o revise/revise.o  $(OBJECTS) $(BOOST_SYSTEM_LIB) dokan/vvdisk.lib libcrypto.dll 
 	$(CPP) $(CFLAGS) $(CLIBS) -o $@ $^ -lws2_32 -unicode
 	@echo "**************************************************************"
 	@echo "MAKE "$@" FINISH"
