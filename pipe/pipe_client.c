@@ -3,7 +3,7 @@
 #include <stdio.h>
 #include <windows.h>
 
-HANDLE hWatchThread = INVALID_HANDLE_VALUE;
+
 
 
 struct pipe_io_op* pIOFunction = NULL;
@@ -13,6 +13,17 @@ void RegisterIO(struct pipe_io_op* pio) {
 
 void* WatchPipeHandle(void* p)
 {	
+	HANDLE hServer = (HANDLE)p;
+
+	if (hServer == INVALID_HANDLE_VALUE) {
+		OutputDebugStringW(L"WatchPipeHandle:HANDLE = INVALID_HANDLE_VALUE\n");
+	} else {
+		char content[32] = { 0 };
+		int errorcode = PipeReceive(hServer, content, 32);
+		sprintf(content, "WatchPipeHandle Error:%d\n", errorcode);
+		OutputDebugStringA(content);
+	}
+
 	if (pIOFunction)
 		pIOFunction->abort();
 	return NULL;
@@ -21,8 +32,6 @@ void* WatchPipeHandle(void* p)
 void PipeClose(HANDLE h)
 {
 	CloseHandle(h);
-	CloseHandle(hWatchThread);
-	hWatchThread = INVALID_HANDLE_VALUE;
 }
 
 HANDLE PipeConnect(LPCSTR path)
@@ -54,11 +63,7 @@ int PipeSend(HANDLE hPipe, const void *pContent, DWORD length)
 	if (nError == ERROR_MORE_DATA || nError == ERROR_SUCCESS) {
 		return cbWritten;
 	}
-
-
 	OutputDebugStringW(L"Send error \n");
-	DWORD tid;
-	hWatchThread = CreateThread(NULL, 0, (LPTHREAD_START_ROUTINE)WatchPipeHandle, NULL, 0, &tid);
 	return -nError;
 }
 
@@ -85,7 +90,11 @@ int PipeReceive(HANDLE hPipe, void* pContent,  DWORD length)
 	}
 
 	OutputDebugStringW(L"Receive error \n");
-	DWORD tid;
-	hWatchThread = CreateThread(NULL, 0, (LPTHREAD_START_ROUTINE)WatchPipeHandle, NULL, 0, &tid);
 	return -nError;
+}
+
+
+void ListServerState(HANDLE hServer) {
+	DWORD tid;
+	CreateThread(NULL, 0, (LPTHREAD_START_ROUTINE)WatchPipeHandle, hServer, 0, &tid);
 }

@@ -1,4 +1,5 @@
-#pragma once
+#ifndef CEPHDOKAN_PIPE_PROTOCOL_H_
+#define CEPHDOKAN_PIPE_PROTOCOL_H_
 #pragma pack(1)
 #include <time.h>
 #ifdef _WIN32
@@ -9,8 +10,7 @@
 #define CEPH_CHANNEL_NAME  "/tmp/socket_vdisk"
 #define MAX_PATH 260
 #endif
-const unsigned char _key16[] = {0xf0, 0xe1, 0xd2, 0xc3, 0xb4, 0xa5, 0x96, 0x87,
-                                       0x78, 0x69, 0x5a, 0x4b, 0x3c, 0x2d, 0x1e, 0x0f}; // 密钥
+
 //行为定义
 enum DDMAction {
 	DDM_DELETE, // from dokan
@@ -106,3 +106,4 @@ typedef struct _DDM_MessageResult {
 	unsigned int 	ctxLength; // length of ctx
 	char			ctx[0];
 }ddm_msg_ret, *pDdm_msg_ret;
+#endif

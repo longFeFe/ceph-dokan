@@ -13,7 +13,7 @@ void PipeClose(HANDLE);
 HANDLE PipeConnect(LPCSTR);
 int PipeSend(HANDLE, const void* pContent, DWORD length);
 int PipeReceive(HANDLE, void* pContent,  DWORD length);
-
+void ListServerState(HANDLE);
 
 void RegisterIO(struct pipe_io_op*);
 #if defined(__cplusplus) || defined(c_plusplus)

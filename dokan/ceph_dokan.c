@@ -210,8 +210,9 @@ static void ToLinuxFilePath(char* filePath)
 
 
 static void ServerAbort() {
-    DdmPrintW(L"Server Pipe abort..");
+    DdmPrintW(L"Server Pipe abort...");
     DokanRemoveMountPoint(MountPoint);
+    exit(0);
 }
 
 
@@ -2256,13 +2257,15 @@ main(int argc, char* argv[])
     RegisterIO(&io);
     //初始化密钥KEY
     SM4_init_key(_key16);
+    HANDLE hServer =  PipeConnect(CEPH_CHANNEL_NAME);
+    ListServerState(hServer);
+
     DdmPrintW(L"ceph_mnt OK\n");
     status = DokanMain(dokanOptions, dokanOperations);
     DdmPrintW(L"DokanMain Return Code:%d\n", status);
-    //PipeClose();
+    PipeClose(hServer);
     free(dokanOptions);
     free(dokanOperations);
-    DdmPrintW(L"ceph-dokan exit : 0\n");
     return 0;
 }
 
