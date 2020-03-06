@@ -71,20 +71,25 @@ BOOL IsOfficeTempFile(const char* ptr_name) {
     if (index_point != string::npos) {
         filename = filename.substr(index_point + 1);
     }
-    //1 特殊开头
-    if (filename.find("~") == 0) {
-        return TRUE;
-    }
-    //2 特殊结尾
-    index_point = filename.rfind(".");
-    if ( index_point != string::npos) {
-        string suffix = filename.substr(index_point + 1);
-        if (suffix == "tmp")    return TRUE;
-        if (suffix == "wbk")    return TRUE;
-        //return FALSE;
-    } 
-    //没有后缀 一律返回TRUE
-    return FALSE;
+    BOOL bTempFile = FALSE;
+    do {
+        //1 特殊开头
+        if (filename.find("~") == 0) {
+            bTempFile = TRUE;
+            break;
+        }
+        //2 特殊结尾
+        index_point = filename.rfind(".");
+        if ( index_point != string::npos) {
+            string suffix = filename.substr(index_point + 1);
+            if (suffix == "tmp")    bTempFile = TRUE;
+            if (suffix == "wbk")    bTempFile = TRUE;
+            break;
+        } 
+    } while(FALSE);
+  
+    if (bTempFile) DdmPrintA("%s is office file.\n", ptr_name);
+    return bTempFile;
 }
 
 int UI2TellMeFileExistWhere(const char* path) {

@@ -175,7 +175,7 @@ static void DbgPrint(char* format, ...)
 
 
 static WCHAR MountPoint[MAX_PATH_CEPH] = L"M:";
-static CHAR LetterName[MAX_PATH] = "电子文档云盘";
+static CHAR LetterName[MAX_PATH] = "vvdisk";
 static char ceph_conf_file[MAX_PATH_CEPH];
 static WCHAR Wceph_conf_file[MAX_PATH_CEPH];
 static WCHAR Wargv0[MAX_PATH_CEPH];
@@ -761,38 +761,40 @@ WinCephCreateDirectory(
     //     }
     // }
     
-    { //查询文件夹是否存在
-        WCHAR absPath[MAX_PATH_CEPH] = { 0 };
-        GetAbsPath(absPath, MAX_PATH_CEPH, FileName);
-        ctx_common request;
-        memset(&request, 0, sizeof(request));
-        wchar_to_char(request.path, absPath, MAX_PATH_CEPH);
-        HANDLE h = PipeConnect(CEPH_CHANNEL_NAME);
+    
 
-        if (SendDataToUI2(h, DDM_FILESTATUS, (void*)&request, sizeof(request)) !=  sizeof(request)) {
-            DdmPrintW(L"Create Failed, PipeSend Error\n");
-            return -ERROR_UNEXP_NET_ERR;
-        }
+    // { //查询文件夹是否存在
+    //     WCHAR absPath[MAX_PATH_CEPH] = { 0 };
+    //     GetAbsPath(absPath, MAX_PATH_CEPH, FileName);
+    //     ctx_common request;
+    //     memset(&request, 0, sizeof(request));
+    //     wchar_to_char(request.path, absPath, MAX_PATH_CEPH);
+    //     HANDLE h = PipeConnect(CEPH_CHANNEL_NAME);
+
+    //     if (SendDataToUI2(h, DDM_FILESTATUS, (void*)&request, sizeof(request)) !=  sizeof(request)) {
+    //         DdmPrintW(L"Create Failed, PipeSend Error\n");
+    //         return -ERROR_UNEXP_NET_ERR;
+    //     }
 
 
-        pDdm_msg_ret pResult = (pDdm_msg_ret)malloc(sizeof(ddm_msg_ret));
-        int iRecv = ReadDataFromUI2(h, (void*)pResult, sizeof(ddm_msg_ret));
-        PipeClose(h);
-        int ret = pResult->result;
-        free(pResult);
-        //文件不存在
-        if (ret == RET_ALLOW) {
-            return -ERROR_ALREADY_EXISTS;
-        } else if(ret == RET_FAILED) {
-            struct stat st_buf;
-            int ret = ceph_stat(cmount, file_name, &st_buf);
-            if(ret==0){
-                if(S_ISDIR(st_buf.st_mode)) {
-                    return -ERROR_ALREADY_EXISTS;
-                }
-            }
-        }
-    }
+    //     pDdm_msg_ret pResult = (pDdm_msg_ret)malloc(sizeof(ddm_msg_ret));
+    //     int iRecv = ReadDataFromUI2(h, (void*)pResult, sizeof(ddm_msg_ret));
+    //     PipeClose(h);
+    //     int ret = pResult->result;
+    //     free(pResult);
+    //     //文件不存在
+    //     if (ret == RET_ALLOW) {
+    //         return -ERROR_ALREADY_EXISTS;
+    //     } else if(ret == RET_FAILED) {
+    //         struct stat st_buf;
+    //         int ret = ceph_stat(cmount, file_name, &st_buf);
+    //         if(ret==0){
+    //             if(S_ISDIR(st_buf.st_mode)) {
+    //                 return -ERROR_ALREADY_EXISTS;
+    //             }
+    //         }
+    //     }
+    // }
 
 
     //查看权限
@@ -807,8 +809,16 @@ WinCephCreateDirectory(
             return -ERROR_ACCESS_DENIED;
         }
     }
-
-    int ret = ceph_mkdir(cmount, file_name, 0755);
+    //文件是否存在
+    struct stat st_buf;
+    int ret = ceph_stat(cmount, file_name, &st_buf);
+    if(ret==0){
+        if(S_ISDIR(st_buf.st_mode)) {
+            return -ERROR_ALREADY_EXISTS;
+        }
+    }
+    
+    ret = ceph_mkdir(cmount, file_name, 0755);
     if(ret == -2)
     {
         fwprintf(stderr, L"CreateDirectory ceph_mkdir ENOENT [%s][ret=%d]\n", FileName, ret);
@@ -1558,7 +1568,7 @@ WinCephMoveFile(
     LPCWSTR                FileName, // existing file name
     LPCWSTR                NewFileName,
     BOOL                ReplaceIfExisting,
-    PDOKAN_FILE_INFO    DokanFileInfo)
+    PDOKAN_FILE_INFO   DokanFileInfo)
 {
     WCHAR            filePath[MAX_PATH_CEPH];
     WCHAR            newFilePath[MAX_PATH_CEPH];
@@ -1596,17 +1606,28 @@ WinCephMoveFile(
 
     GetAbsPath(absPath, MAX_PATH_CEPH, NewFileName);
     wchar_to_char(str_pathto, absPath, sizeof(str_pathto));
+
+
     if (!ReplaceIfExisting) {
-        int ret = UI2TellMeFileExistWhere(str_pathto);
-        if (ret == 0) {
-            DdmPrintW(L"file exist ui2.%s\n", absPath);
-            return -ERROR_ALREADY_EXISTS;
-        }
+        // int ret = UI2TellMeFileExistWhere(str_pathto);
+        // if (ret == 0) {
+        //     DdmPrintW(L"file exist ui2.%s\n", absPath);
+        //     return -ERROR_ALREADY_EXISTS;
+        // }
         
-        if (ret == 2) {
-            struct stat st_buf;
-            if (0 == ceph_stat(cmount, newfile_name, &st_buf)) {
-                DdmPrintW(L"file exist ceph.%s\n", absPath);
+        // if (ret == 2) {
+        //     struct stat st_buf;
+        //     if (0 == ceph_stat(cmount, newfile_name, &st_buf)) {
+        //         DdmPrintW(L"file exist ceph.%s\n", FileName);
+        //         return -ERROR_ALREADY_EXISTS;
+        //     }
+        // }
+
+        struct stat st_buf;
+        if (0 == ceph_stat(cmount, newfile_name, &st_buf)) {
+            if (DokanFileInfo->IsDirectory &&  S_ISDIR(st_buf.st_mode) || 
+                (!DokanFileInfo->IsDirectory &&  S_ISREG(st_buf.st_mode)) ) {
+                DdmPrintW(L"file exist ceph.%s\n", FileName);
                 return -ERROR_ALREADY_EXISTS;
             }
         }
